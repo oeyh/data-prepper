@@ -42,6 +42,6 @@ task buildMain {
 
 task releasePrerequisites {
     dependsOn 'buildMain'
-    dependsOn 'endToEndTests'
-    dependsOn 'benchmarkTests'
+//    dependsOn 'endToEndTests'
+//    dependsOn 'benchmarkTests'
 }
