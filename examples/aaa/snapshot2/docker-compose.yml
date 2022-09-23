@@ -3,23 +3,23 @@ networks:
   my_network:
 
 services:
-  data-prepper:
-    restart: unless-stopped
-    container_name: data-prepper
-    image: opensearchproject/data-prepper:latest
-    working_dir: /usr/share/data-prepper/
-    command: sh data-prepper-wait-for-os-and-start.sh
-    volumes:
-      - ./config/data-prepper-wait-for-os-and-start.sh:/usr/share/data-prepper/data-prepper-wait-for-os-and-start.sh
-      - ./config/pipelines.yaml:/usr/share/data-prepper/pipelines.yaml
-      - ./config/data-prepper-config.yaml:/usr/share/data-prepper/data-prepper-config.yaml
-    ports:
-      - "4900:4900" # DataPrepperServer port
-      - "21890:21890" # OTelTraceSource port
-    networks:
-      - my_network
-    depends_on:
-      - opensearch
+#  data-prepper:
+#    restart: unless-stopped
+#    container_name: data-prepper
+#    image: opensearch-data-prepper:2.0.0-SNAPSHOT
+#    working_dir: /usr/share/data-prepper/
+#    command: sh data-prepper-wait-for-os-and-start.sh
+#    volumes:
+#      - ./config/data-prepper-wait-for-os-and-start.sh:/usr/share/data-prepper/data-prepper-wait-for-os-and-start.sh
+#      - ./config/pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml
+#      - ./config/data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml
+#    ports:
+#      - "4900:4900" # DataPrepperServer port
+#      - "21890:21890" # OTelTraceSource port
+#    networks:
+#      - my_network
+#    depends_on:
+#      - opensearch
 
   opensearch:
     container_name: node-0.example.com
@@ -53,10 +53,10 @@ services:
       - ./config/otel-collector-config.yml:/etc/otel-collector-config.yml
     ports:
       - "55680:55680"
-    depends_on:
-      - data-prepper
     networks:
       - my_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # Metric and Trace Sample Data Generator
   ot-metric-emitter:

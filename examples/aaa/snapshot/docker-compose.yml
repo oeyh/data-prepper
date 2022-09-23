@@ -47,7 +47,6 @@ services:
 
   otel-collector:
     restart: unless-stopped
-    dns: 10.10.1.1
     image: otel/opentelemetry-collector:0.24.0
     command: ["--config=/etc/otel-collector-config.yml"]
     volumes:
