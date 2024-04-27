@@ -70,4 +70,8 @@ public class RdsSourceConfig {
     public String getS3Region() {
         return this.s3Region;
     }
+
+    public boolean isExport() {
+        return this.isExport;
+    }
 }
