@@ -8,6 +8,7 @@ package org.opensearch.dataprepper.plugins.source.rds.leader;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourceCoordinator;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
 import org.opensearch.dataprepper.plugins.source.rds.RdsSourceConfig;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.ExportPartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.GlobalState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.LeaderPartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.LeaderProgressState;
@@ -101,8 +102,9 @@ public class LeaderScheduler implements Runnable {
         leaderProgressState.setInitialized(true);
     }
 
-    private void createExportPartition(RdsSourceConfig sourceConfig, Instant startTime) {
-
+    private void createExportPartition(RdsSourceConfig sourceConfig, Instant exportTime) {
+        ExportPartition exportPartition = new ExportPartition(sourceConfig.getDbIdentifier(), exportTime);
+        sourceCoordinator.createPartition(exportPartition);
     }
 
 }
