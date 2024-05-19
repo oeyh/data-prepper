@@ -14,12 +14,15 @@ import org.opensearch.dataprepper.plugins.source.rds.export.ExportScheduler;
 import org.opensearch.dataprepper.plugins.source.rds.leader.LeaderScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.services.rds.RdsClient;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class RdsService {
     private static final Logger LOG = LoggerFactory.getLogger(RdsService.class);
+
+    private final RdsClient rdsClient;
     private final EnhancedSourceCoordinator sourceCoordinator;
     private final PluginMetrics pluginMetrics;
     private final RdsSourceConfig sourceConfig;
@@ -27,11 +30,13 @@ public class RdsService {
 
     public RdsService(final EnhancedSourceCoordinator sourceCoordinator,
                       final RdsSourceConfig sourceConfig,
+                      final ClientFactory clientFactory,
                       final PluginMetrics pluginMetrics) {
         this.sourceCoordinator = sourceCoordinator;
         this.pluginMetrics = pluginMetrics;
         this.sourceConfig = sourceConfig;
 
+        rdsClient = clientFactory.buildRdsClient();
         executor = Executors.newFixedThreadPool(2);
     }
 
@@ -46,7 +51,7 @@ public class RdsService {
         LOG.info("Start running RDS service");
         Runnable leaderScheduler = new LeaderScheduler(sourceCoordinator, sourceConfig);
 
-        Runnable exportScheduler = new ExportScheduler();
+        Runnable exportScheduler = new ExportScheduler(sourceCoordinator, rdsClient, pluginMetrics);
 
         executor.submit(leaderScheduler);
         executor.submit(exportScheduler);

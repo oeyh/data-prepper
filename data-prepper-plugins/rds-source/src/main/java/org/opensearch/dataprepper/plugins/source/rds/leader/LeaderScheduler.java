@@ -11,6 +11,7 @@ import org.opensearch.dataprepper.plugins.source.rds.RdsSourceConfig;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.ExportPartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.GlobalState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.LeaderPartition;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.state.ExportProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.LeaderProgressState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -92,7 +93,8 @@ public class LeaderScheduler implements Runnable {
             sourceCoordinator.createPartition(new GlobalState(table, null));
 
             Instant startTime = Instant.now();
-            if (sourceConfig.isExport()) {
+            if (sourceConfig.isExportEnabled()) {
+                LOG.debug("Export is enabled. Creating export partition in the source coordination store.");
                 createExportPartition(sourceConfig, startTime);
             }
         }
@@ -103,7 +105,14 @@ public class LeaderScheduler implements Runnable {
     }
 
     private void createExportPartition(RdsSourceConfig sourceConfig, Instant exportTime) {
-        ExportPartition exportPartition = new ExportPartition(sourceConfig.getDbIdentifier(), exportTime);
+        ExportProgressState progressState = new ExportProgressState();
+        progressState.setIamRoleArn(sourceConfig.getAwsAuthenticationConfig().getAwsStsRoleArn());
+        progressState.setBucket(sourceConfig.getS3Bucket());
+        progressState.setPrefix(sourceConfig.getS3Prefix());
+        progressState.setIncludeTables(sourceConfig.getTables());
+        progressState.setKmsKeyId(sourceConfig.getExport().getKmsKeyId());
+        progressState.setExportTime(exportTime.toString());
+        ExportPartition exportPartition = new ExportPartition(sourceConfig.getDbIdentifier(), exportTime, progressState);
         sourceCoordinator.createPartition(exportPartition);
     }
 

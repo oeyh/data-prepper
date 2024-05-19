@@ -5,7 +5,9 @@
 
 package org.opensearch.dataprepper.plugins.source.rds;
 
+import org.opensearch.dataprepper.aws.api.AwsCredentialsSupplier;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
+import org.opensearch.dataprepper.model.annotations.DataPrepperPlugin;
 import org.opensearch.dataprepper.model.annotations.DataPrepperPluginConstructor;
 import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.event.Event;
@@ -23,19 +25,25 @@ import org.slf4j.LoggerFactory;
 import java.util.Objects;
 import java.util.function.Function;
 
+@DataPrepperPlugin(name = "rds", pluginType = Source.class, pluginConfigurationType = RdsSourceConfig.class)
 public class RdsSource implements Source<Record<Event>>, UsesEnhancedSourceCoordination {
 
     private static final Logger LOG = LoggerFactory.getLogger(RdsSource.class);
 
+    private final ClientFactory clientFactory;
     private final PluginMetrics pluginMetrics;
     private final RdsSourceConfig sourceConfig;
     private EnhancedSourceCoordinator sourceCoordinator;
     private RdsService rdsService;
 
     @DataPrepperPluginConstructor
-    public RdsSource(final PluginMetrics pluginMetrics, final RdsSourceConfig sourceConfig) {
+    public RdsSource(final PluginMetrics pluginMetrics,
+                     final RdsSourceConfig sourceConfig,
+                     final AwsCredentialsSupplier awsCredentialsSupplier) {
         this.pluginMetrics = pluginMetrics;
         this.sourceConfig = sourceConfig;
+
+        clientFactory = new ClientFactory(awsCredentialsSupplier, sourceConfig.getAwsAuthenticationConfig());
     }
 
     @Override
@@ -43,7 +51,7 @@ public class RdsSource implements Source<Record<Event>>, UsesEnhancedSourceCoord
         Objects.requireNonNull(sourceCoordinator);
         sourceCoordinator.createPartition(new LeaderPartition());
 
-        rdsService = new RdsService(sourceCoordinator, sourceConfig, pluginMetrics);
+        rdsService = new RdsService(sourceCoordinator, sourceConfig, clientFactory, pluginMetrics);
 
         LOG.info("Start RDS service");
         rdsService.start(buffer);
