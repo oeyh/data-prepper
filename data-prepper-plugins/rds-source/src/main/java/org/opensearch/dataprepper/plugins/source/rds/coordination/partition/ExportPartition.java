@@ -5,6 +5,7 @@
 
 package org.opensearch.dataprepper.plugins.source.rds.coordination.partition;
 
+import org.opensearch.dataprepper.model.source.coordinator.SourcePartitionStoreItem;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.ExportProgressState;
 
@@ -26,10 +27,18 @@ public class ExportPartition extends EnhancedSourcePartition<ExportProgressState
 
     private final ExportProgressState progressState;
 
-    public ExportPartition(String dbIdentifier, Instant exportTime) {
+    public ExportPartition(String dbIdentifier, Instant exportTime, ExportProgressState progressState) {
         this.dbIdentifier = dbIdentifier;
         this.exportTime = exportTime;
-        this.progressState = null;
+        this.progressState = progressState;
+    }
+
+    public ExportPartition(SourcePartitionStoreItem sourcePartitionStoreItem) {
+        setSourcePartitionStoreItem(sourcePartitionStoreItem);
+        String [] keySplits = sourcePartitionStoreItem.getSourcePartitionKey().split("\\|");
+        dbIdentifier = keySplits[0];
+        exportTime = Instant.ofEpochMilli(Long.valueOf(keySplits[1]));
+        progressState = convertStringToPartitionProgressState(ExportProgressState.class, sourcePartitionStoreItem.getPartitionProgressState());
     }
 
     @Override
@@ -48,5 +57,13 @@ public class ExportPartition extends EnhancedSourcePartition<ExportProgressState
             return Optional.of(progressState);
         }
         return Optional.empty();
+    }
+
+    public String getDbIdentifier() {
+        return dbIdentifier;
+    }
+
+    public Instant getExportTime() {
+        return exportTime;
     }
 }

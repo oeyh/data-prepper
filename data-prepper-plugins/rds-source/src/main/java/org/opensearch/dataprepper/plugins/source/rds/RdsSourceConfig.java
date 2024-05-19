@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.opensearch.dataprepper.plugins.source.rds.configuration.AwsAuthenticationConfig;
+import org.opensearch.dataprepper.plugins.source.rds.configuration.ExportConfig;
 
 import java.util.List;
 
@@ -41,7 +42,7 @@ public class RdsSourceConfig {
     private String s3Region;
 
     @JsonProperty("export")
-    private boolean isExport;
+    private ExportConfig exportConfig;
 
     public String getDbIdentifier() {
         return dbIdentifier;
@@ -56,22 +57,26 @@ public class RdsSourceConfig {
     }
 
     public boolean isAcknowledgmentsEnabled() {
-        return this.acknowledgments;
+        return acknowledgments;
     }
 
     public String getS3Bucket() {
-        return this.s3Bucket;
+        return s3Bucket;
     }
 
     public String getS3Prefix() {
-        return this.s3Prefix;
+        return s3Prefix;
     }
 
     public String getS3Region() {
-        return this.s3Region;
+        return s3Region;
     }
 
-    public boolean isExport() {
-        return this.isExport;
+    public ExportConfig getExport() {
+        return exportConfig;
+    }
+
+    public boolean isExportEnabled() {
+        return exportConfig != null;
     }
 }
