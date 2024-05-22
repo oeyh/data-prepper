@@ -192,7 +192,7 @@ public class ExportScheduler implements Runnable {
 
     private void closeExportPartitionWithError(ExportPartition exportPartition) {
         ExportProgressState exportProgressState = exportPartition.getProgressState().get();
-        // Clear current Arn, so that a new export can be submitted.
+        // Clear current task id, so that a new export can be submitted.
         exportProgressState.setExportTaskId(null);
         sourceCoordinator.closePartition(exportPartition, DEFAULT_CLOSE_DURATION, DEFAULT_MAX_CLOSE_COUNT);
     }
