@@ -9,7 +9,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class DataFileProgressState {
 
-
     @JsonProperty("totalRecords")
     private int total;
 
@@ -19,27 +18,38 @@ public class DataFileProgressState {
     @JsonProperty("exportStartTime")
     private long startTime;
 
+    @JsonProperty("sourceTable")
+    private String sourceTable;
+
     public int getTotal() {
         return total;
-    }
-
-    public int getLoaded() {
-        return loaded;
     }
 
     public void setTotal(int total) {
         this.total = total;
     }
 
+    public int getLoaded() {
+        return loaded;
+    }
+
     public void setLoaded(int loaded) {
         this.loaded = loaded;
+    }
+
+    public long getStartTime() {
+        return startTime;
     }
 
     public void setStartTime(long startTime) {
         this.startTime = startTime;
     }
 
-    public long getStartTime() {
-        return startTime;
+    public String getSourceTable() {
+        return sourceTable;
+    }
+
+    public void setSourceTable(String sourceTable) {
+        this.sourceTable = sourceTable;
     }
 }

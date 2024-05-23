@@ -8,19 +8,29 @@ package org.opensearch.dataprepper.plugins.source.rds.export;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourceCoordinator;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.DataFilePartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.ExportPartition;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.state.DataFileProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.ExportProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.model.SnapshotInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.rds.RdsClient;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
+import java.util.stream.Collectors;
 
 public class ExportScheduler implements Runnable {
     private static final Logger LOG = LoggerFactory.getLogger(ExportScheduler.class);
@@ -30,8 +40,10 @@ public class ExportScheduler implements Runnable {
     private static final int DEFAULT_MAX_CLOSE_COUNT = 36;
     private static final int DEFAULT_CHECKPOINT_INTERVAL_MILLS = 5 * 60_000;
     private static final int DEFAULT_CHECK_STATUS_INTERVAL_MILLS = 30 * 1000;
+    private static final String PARQUET_SUFFIX = ".parquet";
 
     private final RdsClient rdsClient;
+    private final S3Client s3Client;
 
     private final PluginMetrics pluginMetrics;
 
@@ -44,10 +56,12 @@ public class ExportScheduler implements Runnable {
 
     public ExportScheduler(final EnhancedSourceCoordinator sourceCoordinator,
                            final RdsClient rdsClient,
+                           final S3Client s3Client,
                            final PluginMetrics pluginMetrics) {
         this.pluginMetrics = pluginMetrics;
         this.sourceCoordinator = sourceCoordinator;
         this.rdsClient = rdsClient;
+        this.s3Client = s3Client;
         this.executor = Executors.newCachedThreadPool();
         this.exportTaskManager = new ExportTaskManager(rdsClient);
         this.snapshotManager = new SnapshotManager(rdsClient);
@@ -109,9 +123,56 @@ public class ExportScheduler implements Runnable {
                 }
                 LOG.info("Export for {} completed successfully", exportPartition.getPartitionKey());
 
+                ExportProgressState state = exportPartition.getProgressState().get();
+                String bucket = state.getBucket();
+                String prefix = state.getPrefix();
+                String exportTaskId = state.getExportTaskId();
+                List<String> tables = state.getIncludeTables();
+
+                List<String> dataFileObjectKeys = getDataFileObjectKeys(bucket, prefix, exportTaskId);
+                createDataFilePartitions(bucket, prefix, exportTaskId, tables, dataFileObjectKeys);
+
                 completeExportPartition(exportPartition);
             }
         };
+    }
+
+    private List<String> getDataFileObjectKeys(String bucket, String prefix, String exportTaskId) {
+        LOG.debug("Fetching object keys for export data files.");
+        ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
+                .bucket(bucket)
+                .prefix(prefix + "/" + exportTaskId);
+
+        List<String> objectKeys = new ArrayList<>();
+        ListObjectsV2Response response = null;
+        do {
+            String nextToken = response == null ? null : response.nextContinuationToken();
+            response = s3Client.listObjectsV2(requestBuilder
+                    .continuationToken(nextToken)
+                    .build());
+            objectKeys.addAll(response.contents().stream()
+                    .map(S3Object::key)
+                    .filter(key -> key.endsWith(PARQUET_SUFFIX))
+                    .collect(Collectors.toList()));
+
+        } while (response.isTruncated());
+        return objectKeys;
+    }
+
+    private void createDataFilePartitions(String bucket, String prefix, String exportTaskId, List<String> tables, List<String> dataFileObjectKeys) {
+        LOG.info("Total of {} data files generated for export {}", dataFileObjectKeys.size(), exportTaskId);
+        AtomicInteger totalFiles = new AtomicInteger();
+        for (final String objectKey : dataFileObjectKeys) {
+            DataFileProgressState progressState = new DataFileProgressState();
+            progressState.setTotal(1);
+            progressState.setLoaded(0);
+            // objectKey has this structure: "{prefix}/{export task ID}/{database name}/{table name}/...", table name is the 4th part
+            String table = objectKey.split("/")[3];
+            progressState.setSourceTable(table);
+
+            DataFilePartition dataFilePartition = new DataFilePartition(exportTaskId, bucket, objectKey, Optional.of(progressState));
+            sourceCoordinator.createPartition(dataFilePartition);
+        }
     }
 
     private void completeExportPartition(ExportPartition exportPartition) {
