@@ -31,7 +31,7 @@ public class DataFilePartition extends EnhancedSourcePartition<DataFileProgressS
         exportTaskId = keySplits[0];
         bucket = keySplits[1];
         key = keySplits[2];
-        this.state = convertStringToPartitionProgressState(DataFileProgressState.class, sourcePartitionStoreItem.getPartitionProgressState());
+        state = convertStringToPartitionProgressState(DataFileProgressState.class, sourcePartitionStoreItem.getPartitionProgressState());
 
     }
 
