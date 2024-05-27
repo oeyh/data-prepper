@@ -8,8 +8,10 @@ package org.opensearch.dataprepper.plugins.source.rds;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
 import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.event.Event;
+import org.opensearch.dataprepper.model.event.EventFactory;
 import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourceCoordinator;
+import org.opensearch.dataprepper.plugins.source.rds.export.DataFileScheduler;
 import org.opensearch.dataprepper.plugins.source.rds.export.ExportScheduler;
 import org.opensearch.dataprepper.plugins.source.rds.leader.LeaderScheduler;
 import org.slf4j.Logger;
@@ -26,21 +28,24 @@ public class RdsService {
     private final RdsClient rdsClient;
     private final S3Client s3Client;
     private final EnhancedSourceCoordinator sourceCoordinator;
+    private final EventFactory eventFactory;
     private final PluginMetrics pluginMetrics;
     private final RdsSourceConfig sourceConfig;
     private final ExecutorService executor;
 
     public RdsService(final EnhancedSourceCoordinator sourceCoordinator,
                       final RdsSourceConfig sourceConfig,
+                      final EventFactory eventFactory,
                       final ClientFactory clientFactory,
                       final PluginMetrics pluginMetrics) {
         this.sourceCoordinator = sourceCoordinator;
+        this.eventFactory = eventFactory;
         this.pluginMetrics = pluginMetrics;
         this.sourceConfig = sourceConfig;
 
         rdsClient = clientFactory.buildRdsClient();
         s3Client = clientFactory.buildS3Client();
-        executor = Executors.newFixedThreadPool(2);
+        executor = Executors.newFixedThreadPool(3);
     }
 
     /**
@@ -53,11 +58,12 @@ public class RdsService {
     public void start(Buffer<Record<Event>> buffer) {
         LOG.info("Start running RDS service");
         Runnable leaderScheduler = new LeaderScheduler(sourceCoordinator, sourceConfig);
-
         Runnable exportScheduler = new ExportScheduler(sourceCoordinator, rdsClient, s3Client, pluginMetrics);
+        Runnable dataFileScheduler = new DataFileScheduler(sourceCoordinator, sourceConfig, s3Client, eventFactory, buffer);
 
         executor.submit(leaderScheduler);
         executor.submit(exportScheduler);
+        executor.submit(dataFileScheduler);
     }
 
     /**
