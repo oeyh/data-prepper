@@ -21,6 +21,9 @@ public class ExportTaskManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(ExportTaskManager.class);
 
+    // Export identifier cannot be longer than 60 characters
+    private static final int EXPORT_TASK_ID_MAX_LENGTH = 60;
+
     private final RdsClient rdsClient;
 
     public ExportTaskManager(final RdsClient rdsClient) {
@@ -64,6 +67,13 @@ public class ExportTaskManager {
 
     private String generateExportTaskId(String snapshotArn) {
         String snapshotId = Arn.fromString(snapshotArn).resource().resource();
-        return snapshotId + "-export-" + UUID.randomUUID().toString().substring(0, 8);
+        return truncateString(snapshotId, EXPORT_TASK_ID_MAX_LENGTH - 16) + "-export-" + UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    private String truncateString(String originalString, int maxLength) {
+        if (originalString.length() <= maxLength) {
+            return originalString;
+        }
+        return originalString.substring(0, maxLength);
     }
 }
