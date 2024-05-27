@@ -127,10 +127,9 @@ public class ExportScheduler implements Runnable {
                 String bucket = state.getBucket();
                 String prefix = state.getPrefix();
                 String exportTaskId = state.getExportTaskId();
-                List<String> tables = state.getIncludeTables();
 
                 List<String> dataFileObjectKeys = getDataFileObjectKeys(bucket, prefix, exportTaskId);
-                createDataFilePartitions(bucket, prefix, exportTaskId, tables, dataFileObjectKeys);
+                createDataFilePartitions(bucket, exportTaskId, dataFileObjectKeys);
 
                 completeExportPartition(exportPartition);
             }
@@ -159,7 +158,7 @@ public class ExportScheduler implements Runnable {
         return objectKeys;
     }
 
-    private void createDataFilePartitions(String bucket, String prefix, String exportTaskId, List<String> tables, List<String> dataFileObjectKeys) {
+    private void createDataFilePartitions(String bucket, String exportTaskId, List<String> dataFileObjectKeys) {
         LOG.info("Total of {} data files generated for export {}", dataFileObjectKeys.size(), exportTaskId);
         AtomicInteger totalFiles = new AtomicInteger();
         for (final String objectKey : dataFileObjectKeys) {
