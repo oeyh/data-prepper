@@ -9,10 +9,10 @@ import org.opensearch.dataprepper.plugins.source.rds.model.SnapshotInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.rds.RdsClient;
-import software.amazon.awssdk.services.rds.model.CreateDbClusterSnapshotRequest;
-import software.amazon.awssdk.services.rds.model.CreateDbClusterSnapshotResponse;
-import software.amazon.awssdk.services.rds.model.DescribeDbClusterSnapshotsRequest;
-import software.amazon.awssdk.services.rds.model.DescribeDbClusterSnapshotsResponse;
+import software.amazon.awssdk.services.rds.model.CreateDbSnapshotRequest;
+import software.amazon.awssdk.services.rds.model.CreateDbSnapshotResponse;
+import software.amazon.awssdk.services.rds.model.DescribeDbSnapshotsRequest;
+import software.amazon.awssdk.services.rds.model.DescribeDbSnapshotsResponse;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -26,41 +26,41 @@ public class SnapshotManager {
         this.rdsClient = rdsClient;
     }
 
-    public SnapshotInfo createDBClusterSnapshot(String dbClusterId) {
-        final String snapshotId = generateSnapshotId(dbClusterId);
-        CreateDbClusterSnapshotRequest request = CreateDbClusterSnapshotRequest.builder()
-                .dbClusterIdentifier(dbClusterId)
-                .dbClusterSnapshotIdentifier(snapshotId)
+    public SnapshotInfo createSnapshot(String dbInstanceId) {
+        final String snapshotId = generateSnapshotId(dbInstanceId);
+        CreateDbSnapshotRequest request = CreateDbSnapshotRequest.builder()
+                .dbInstanceIdentifier(dbInstanceId)
+                .dbSnapshotIdentifier(snapshotId)
                 .build();
 
         try {
-            CreateDbClusterSnapshotResponse response = rdsClient.createDBClusterSnapshot(request);
-            String snapshotArn = response.dbClusterSnapshot().dbClusterSnapshotArn();
-            String status = response.dbClusterSnapshot().status();
-            Instant createTime = response.dbClusterSnapshot().snapshotCreateTime();
+            CreateDbSnapshotResponse response = rdsClient.createDBSnapshot(request);
+            String snapshotArn = response.dbSnapshot().dbSnapshotArn();
+            String status = response.dbSnapshot().status();
+            Instant createTime = response.dbSnapshot().snapshotCreateTime();
             LOG.info("Creating snapshot with id {} and status {}", snapshotId, status);
 
             return new SnapshotInfo(snapshotId, snapshotArn, createTime, status);
         } catch (Exception e) {
-            LOG.error("Failed to create cluster snapshot for {}", dbClusterId, e);
+            LOG.error("Failed to create snapshot for {}", dbInstanceId, e);
             return null;
         }
     }
 
     public SnapshotInfo checkSnapshotStatus(String snapshotId) {
-        DescribeDbClusterSnapshotsRequest request = DescribeDbClusterSnapshotsRequest.builder()
-                .dbClusterSnapshotIdentifier(snapshotId)
+        DescribeDbSnapshotsRequest request = DescribeDbSnapshotsRequest.builder()
+                .dbSnapshotIdentifier(snapshotId)
                 .build();
 
-        DescribeDbClusterSnapshotsResponse response = rdsClient.describeDBClusterSnapshots(request);
-        String snapshotArn = response.dbClusterSnapshots().get(0).dbClusterSnapshotArn();
-        String status = response.dbClusterSnapshots().get(0).status();
-        Instant createTime = response.dbClusterSnapshots().get(0).snapshotCreateTime();
+        DescribeDbSnapshotsResponse response = rdsClient.describeDBSnapshots(request);
+        String snapshotArn = response.dbSnapshots().get(0).dbSnapshotArn();
+        String status = response.dbSnapshots().get(0).status();
+        Instant createTime = response.dbSnapshots().get(0).snapshotCreateTime();
 
         return new SnapshotInfo(snapshotId, snapshotArn, createTime, status);
     }
 
     private String generateSnapshotId(String dbClusterId) {
-        return dbClusterId + "-snapshot-by-pipeline-" + UUID.randomUUID().toString().substring(0, 8);
+        return dbClusterId + "-snapshot-" + UUID.randomUUID().toString().substring(0, 8);
     }
 }

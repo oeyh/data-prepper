@@ -107,7 +107,7 @@ public class ExportScheduler implements Runnable {
                     closeExportPartitionWithError(exportPartition);
                     return;
                 }
-                LOG.info("Export for {} completed suceessfully", exportPartition.getPartitionKey());
+                LOG.info("Export for {} completed successfully", exportPartition.getPartitionKey());
 
                 completeExportPartition(exportPartition);
             }
@@ -129,7 +129,7 @@ public class ExportScheduler implements Runnable {
         }
 
         LOG.info("Creating a new snapshot for db {}", exportPartition.getDbIdentifier());
-        SnapshotInfo snapshotInfo = snapshotManager.createDBClusterSnapshot(exportPartition.getDbIdentifier());
+        SnapshotInfo snapshotInfo = snapshotManager.createSnapshot(exportPartition.getDbIdentifier());
         if (snapshotInfo == null) {
             LOG.error("The snapshot failed to create, it will be retried");
             closeExportPartitionWithError(exportPartition);
@@ -137,8 +137,6 @@ public class ExportScheduler implements Runnable {
         }
 
         String snapshotId = snapshotInfo.getSnapshotId();
-//        CompletableFuture<String> checkSnapshotStatus = CompletableFuture.supplyAsync(() -> checkSnapshotStatus(snapshotId), executor);
-//        checkSnapshotStatus.whenComplete(completeSnapshot(exportPartition, snapshotId));
         try {
             checkSnapshotStatus(snapshotId);
         } catch (Exception e) {
