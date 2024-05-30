@@ -14,6 +14,7 @@ import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSour
 import org.opensearch.dataprepper.plugins.source.rds.export.DataFileScheduler;
 import org.opensearch.dataprepper.plugins.source.rds.export.ExportScheduler;
 import org.opensearch.dataprepper.plugins.source.rds.leader.LeaderScheduler;
+import org.opensearch.dataprepper.plugins.source.rds.stream.StreamScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.rds.RdsClient;
@@ -45,7 +46,7 @@ public class RdsService {
 
         rdsClient = clientFactory.buildRdsClient();
         s3Client = clientFactory.buildS3Client();
-        executor = Executors.newFixedThreadPool(3);
+        executor = Executors.newFixedThreadPool(4);
     }
 
     /**
@@ -60,10 +61,12 @@ public class RdsService {
         Runnable leaderScheduler = new LeaderScheduler(sourceCoordinator, sourceConfig);
         Runnable exportScheduler = new ExportScheduler(sourceCoordinator, rdsClient, s3Client, pluginMetrics);
         Runnable dataFileScheduler = new DataFileScheduler(sourceCoordinator, sourceConfig, s3Client, eventFactory, buffer);
+        Runnable streamScheduler = new StreamScheduler();
 
         executor.submit(leaderScheduler);
         executor.submit(exportScheduler);
         executor.submit(dataFileScheduler);
+        executor.submit(streamScheduler);
     }
 
     /**

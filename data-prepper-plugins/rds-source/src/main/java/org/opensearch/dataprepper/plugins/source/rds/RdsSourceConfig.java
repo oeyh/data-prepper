@@ -44,6 +44,12 @@ public class RdsSourceConfig {
     @JsonProperty("export")
     private ExportConfig exportConfig;
 
+    @JsonProperty("stream")
+    private boolean isStreamEnabled = true;
+
+    @JsonProperty("authentication")
+    private AuthenticationConfig authenticationConfig;
+
     public String getDbIdentifier() {
         return dbIdentifier;
     }
@@ -78,5 +84,30 @@ public class RdsSourceConfig {
 
     public boolean isExportEnabled() {
         return exportConfig != null;
+    }
+
+    public boolean isStreamEnabled() {
+        return isStreamEnabled;
+    }
+
+    public AuthenticationConfig getAuthenticationConfig() {
+        return this.authenticationConfig;
+    }
+
+    public static class AuthenticationConfig {
+        @JsonProperty("username")
+        private String username;
+
+        @JsonProperty("password")
+        private String password;
+
+        public String getUsername() {
+            return username;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
     }
 }

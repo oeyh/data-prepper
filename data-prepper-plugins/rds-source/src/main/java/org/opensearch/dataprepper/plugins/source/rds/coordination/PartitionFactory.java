@@ -9,7 +9,9 @@ import org.opensearch.dataprepper.model.source.coordinator.SourcePartitionStoreI
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.DataFilePartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.ExportPartition;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.GlobalState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.LeaderPartition;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.StreamPartition;
 
 import java.util.function.Function;
 
@@ -23,15 +25,18 @@ public class PartitionFactory implements Function<SourcePartitionStoreItem, Enha
         String sourceIdentifier = partitionStoreItem.getSourceIdentifier();
         String partitionType = sourceIdentifier.substring(sourceIdentifier.lastIndexOf('|') + 1);
 
-        if (LeaderPartition.PARTITION_TYPE.equals(partitionType)) {
-            return new LeaderPartition(partitionStoreItem);
-        } else if (ExportPartition.PARTITION_TYPE.equals(partitionType)) {
-            return new ExportPartition(partitionStoreItem);
-        } else if (DataFilePartition.PARTITION_TYPE.equals(partitionType)) {
-            return new DataFilePartition(partitionStoreItem);
-        } else {
+        switch (partitionType) {
+            case LeaderPartition.PARTITION_TYPE:
+                return new LeaderPartition(partitionStoreItem);
+            case ExportPartition.PARTITION_TYPE:
+                return new ExportPartition(partitionStoreItem);
+            case DataFilePartition.PARTITION_TYPE:
+                return new DataFilePartition(partitionStoreItem);
+            case StreamPartition.PARTITION_TYPE:
+                return new StreamPartition(partitionStoreItem);
+            default:
                 // Unable to acquire other partitions.
-                return null;
+                return new GlobalState(partitionStoreItem);
         }
     }
 }

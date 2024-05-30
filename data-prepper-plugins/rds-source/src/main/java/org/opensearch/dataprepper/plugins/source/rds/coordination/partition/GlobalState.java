@@ -5,11 +5,18 @@
 
 package org.opensearch.dataprepper.plugins.source.rds.coordination.partition;
 
+import org.opensearch.dataprepper.model.source.coordinator.SourcePartitionStoreItem;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
 
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Global State is a special type of partition. The partition type is null.
+ * You can't acquire (own) a Global State.
+ * However, you can read and update Global State whenever required.
+ * The progress state is a Map object.
+ */
 public class GlobalState extends EnhancedSourcePartition<Map<String, Object>> {
 
     private final String stateName;
@@ -19,6 +26,12 @@ public class GlobalState extends EnhancedSourcePartition<Map<String, Object>> {
     public GlobalState(String stateName, Map<String, Object> state) {
         this.stateName = stateName;
         this.state = state;
+    }
+
+    public GlobalState(SourcePartitionStoreItem sourcePartitionStoreItem) {
+        setSourcePartitionStoreItem(sourcePartitionStoreItem);
+        stateName = sourcePartitionStoreItem.getSourcePartitionKey();
+        state = convertStringToPartitionProgressState(null, sourcePartitionStoreItem.getPartitionProgressState());
     }
 
     @Override
