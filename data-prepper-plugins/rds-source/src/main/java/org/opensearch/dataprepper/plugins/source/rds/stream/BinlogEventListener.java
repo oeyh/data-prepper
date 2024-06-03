@@ -13,6 +13,7 @@ import org.opensearch.dataprepper.buffer.common.BufferAccumulator;
 import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.record.Record;
+import org.opensearch.dataprepper.plugins.source.rds.converter.S3PartitionCreator;
 import org.opensearch.dataprepper.plugins.source.rds.converter.StreamRecordConverter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,12 +34,14 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
     private final Map<Long, List<String>> columnNamesMap;
     private final StreamRecordConverter recordConverter;
     private final BufferAccumulator<Record<Event>> bufferAccumulator;
+    private final String s3Prefix;
 
-    public BinlogEventListener(final Buffer<Record<Event>> buffer) {
+    public BinlogEventListener(final Buffer<Record<Event>> buffer, final String s3Prefix) {
         tableNameMap = new HashMap<>();
         columnNamesMap = new HashMap<>();
         recordConverter = new StreamRecordConverter();
-        bufferAccumulator = BufferAccumulator.create(buffer, DEFAULT_BUFFER_BATCH_SIZE, BUFFER_TIMEOUT);;
+        bufferAccumulator = BufferAccumulator.create(buffer, DEFAULT_BUFFER_BATCH_SIZE, BUFFER_TIMEOUT);
+        this.s3Prefix = s3Prefix;
     }
 
     @Override
@@ -78,9 +81,12 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
             for (int i = 0; i < rowDataArray.length; i++) {
                 rowDataMap.put(columnNames.get(i), rowDataArray[i]);
             }
-            Event dataPrepperEvent = recordConverter.convert(rowDataMap, tableName, "index");
+
+            // TODO: the primary key name should be from querying the database schema
+            final String primaryKey = columnNames.get(0);
+            Event pipelineEvent = recordConverter.convert(rowDataMap, tableName, "index", primaryKey, s3Prefix);
             try {
-                bufferAccumulator.add(new Record<>(dataPrepperEvent));
+                bufferAccumulator.add(new Record<>(pipelineEvent));
             } catch (Exception e) {
                 LOG.error("Failed to add event to buffer", e);
             }

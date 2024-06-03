@@ -10,8 +10,10 @@ import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSour
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.DataFilePartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.ExportPartition;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.GlobalState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.DataFileProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.ExportProgressState;
+import org.opensearch.dataprepper.plugins.source.rds.model.LoadStatus;
 import org.opensearch.dataprepper.plugins.source.rds.model.SnapshotInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,8 +86,12 @@ public class ExportScheduler implements Runnable {
                         LOG.error("The export to S3 failed, it will be retried");
                         closeExportPartitionWithError(exportPartition);
                     } else {
-                        CompletableFuture<String> checkStatus = CompletableFuture.supplyAsync(() -> checkExportStatus(exportPartition), executor);
-                        checkStatus.whenComplete(completeExport(exportPartition));
+                        if (!"Completed".equals(exportPartition.getProgressState().get().getStatus())) {
+                            completeExport(exportPartition).accept("COMPLETE", null);
+                        } else {
+                            CompletableFuture<String> checkStatus = CompletableFuture.supplyAsync(() -> checkExportStatus(exportPartition), executor);
+                            checkStatus.whenComplete(completeExport(exportPartition));
+                        }
                     }
                 }
 
@@ -171,7 +177,12 @@ public class ExportScheduler implements Runnable {
 
             DataFilePartition dataFilePartition = new DataFilePartition(exportTaskId, bucket, objectKey, Optional.of(progressState));
             sourceCoordinator.createPartition(dataFilePartition);
+            totalFiles.getAndIncrement();
         }
+
+        // Create a global state to track overall progress for data file processing
+        LoadStatus loadStatus = new LoadStatus(totalFiles.get(), 0, 0, 0);
+        sourceCoordinator.createPartition(new GlobalState(exportTaskId, loadStatus.toMap()));
     }
 
     private void completeExportPartition(ExportPartition exportPartition) {

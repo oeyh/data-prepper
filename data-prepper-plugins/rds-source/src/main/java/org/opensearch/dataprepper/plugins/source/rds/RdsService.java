@@ -72,7 +72,7 @@ public class RdsService {
         if (sourceConfig.isStreamEnabled()) {
             BinlogClientFactory binlogClientFactory = new BinlogClientFactory(sourceConfig, rdsClient);
             BinaryLogClient binaryLogClient = binlogClientFactory.create();
-            runnableList.add(new StreamScheduler(sourceCoordinator, binaryLogClient, buffer, pluginMetrics));
+            runnableList.add(new StreamScheduler(sourceCoordinator, sourceConfig, binaryLogClient, buffer, pluginMetrics));
         }
 
         executor = Executors.newFixedThreadPool(runnableList.size());

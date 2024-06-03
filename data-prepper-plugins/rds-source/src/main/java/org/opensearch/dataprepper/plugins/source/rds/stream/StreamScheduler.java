@@ -12,6 +12,8 @@ import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourceCoordinator;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
+import org.opensearch.dataprepper.plugins.source.rds.RdsSourceConfig;
+import org.opensearch.dataprepper.plugins.source.rds.converter.S3PartitionCreator;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.StreamPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,16 +26,20 @@ public class StreamScheduler implements Runnable {
     private static final Logger LOG = LoggerFactory.getLogger(StreamScheduler.class);
 
     private static final int DEFAULT_TAKE_LEASE_INTERVAL_MILLIS = 60_000;
+
     private final EnhancedSourceCoordinator sourceCoordinator;
+    private final RdsSourceConfig sourceConfig;
     private final BinaryLogClient binaryLogClient;
     private final PluginMetrics pluginMetrics;
 
     public StreamScheduler(final EnhancedSourceCoordinator sourceCoordinator,
+                           final RdsSourceConfig sourceConfig,
                            final BinaryLogClient binaryLogClient,
                            final Buffer<Record<Event>> buffer,
                            final PluginMetrics pluginMetrics) {
         this.sourceCoordinator = sourceCoordinator;
-        binaryLogClient.registerEventListener(new BinlogEventListener(buffer));
+        this.sourceConfig = sourceConfig;
+        binaryLogClient.registerEventListener(new BinlogEventListener(buffer, sourceConfig.getS3Prefix()));
         this.binaryLogClient = binaryLogClient;
         this.pluginMetrics = pluginMetrics;
     }
@@ -46,9 +52,8 @@ public class StreamScheduler implements Runnable {
                 if (sourcePartition.isPresent()) {
                     LOG.info("Acquired partition to read from stream");
 
-                    //TODO: stream worker
                     final StreamPartition streamPartition = (StreamPartition) sourcePartition.get();
-                    final StreamWorker streamWorker = new StreamWorker(binaryLogClient, pluginMetrics);
+                    final StreamWorker streamWorker = new StreamWorker(sourceCoordinator, binaryLogClient, pluginMetrics);
                     streamWorker.processStream(streamPartition);
                 }
 

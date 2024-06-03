@@ -16,6 +16,8 @@ import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSour
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
 import org.opensearch.dataprepper.plugins.source.rds.RdsSourceConfig;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.DataFilePartition;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.GlobalState;
+import org.opensearch.dataprepper.plugins.source.rds.model.LoadStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -110,6 +112,7 @@ public class DataFileScheduler implements Runnable {
         runLoader.whenComplete((v, ex) -> {
             if (ex == null) {
                 // TODO: update global state
+                updateLoadStatus(dataFilePartition.getExportTaskId());
                 sourceCoordinator.completePartition(dataFilePartition);
             } else {
                 LOG.error("There was an exception while processing an S3 data file: {}", ex);
@@ -118,5 +121,34 @@ public class DataFileScheduler implements Runnable {
             numOfWorkers.decrementAndGet();
         });
         numOfWorkers.incrementAndGet();
+    }
+
+    private void updateLoadStatus(String exportTaskId) {
+        while (true) {
+            Optional<EnhancedSourcePartition> globalStatePartition = sourceCoordinator.getPartition(exportTaskId);
+            if (globalStatePartition.isEmpty()) {
+                LOG.error("Failed to get data file load status for {}", exportTaskId);
+                return;
+            }
+
+            GlobalState globalState = (GlobalState) globalStatePartition.get();
+            LoadStatus loadStatus = LoadStatus.fromMap(globalState.getProgressState().get());
+            loadStatus.setLoadedFiles(loadStatus.getLoadedFiles() + 1);
+            LOG.info("Current status: total {} loaded {}", loadStatus.getTotalFiles(), loadStatus.getLoadedFiles());
+
+            globalState.setProgressState(loadStatus.toMap());
+
+            try {
+                sourceCoordinator.saveProgressStateForPartition(globalState, null);
+                // if all load are completed.
+                if (sourceConfig.isStreamEnabled() && loadStatus.getLoadedFiles() == loadStatus.getTotalFiles()) {
+                    LOG.info("All Exports are done, streaming can continue...");
+                    sourceCoordinator.createPartition(new GlobalState("stream-for-" + sourceConfig.getDbIdentifier(), null));
+                }
+                break;
+            } catch (Exception e) {
+                LOG.error("Failed to update the global status, looks like the status was out of date, will retry..");
+            }
+        }
     }
 }

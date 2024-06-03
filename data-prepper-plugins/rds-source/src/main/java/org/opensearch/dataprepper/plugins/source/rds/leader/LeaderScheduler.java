@@ -89,12 +89,12 @@ public class LeaderScheduler implements Runnable {
     private void init() {
         LOG.info("Initializing RDS source service...");
 
-        for (String table : sourceConfig.getTables()) {
-            // Create a Global state in the coordination table for the configuration.
-            // Global State here is designed to be able to read whenever needed
-            // So that the jobs can refer to the configuration.
-            sourceCoordinator.createPartition(new GlobalState(table, null));
+        // Create a Global state in the coordination table for the configuration.
+        // Global State here is designed to be able to read whenever needed
+        // So that the jobs can refer to the configuration.
+        sourceCoordinator.createPartition(new GlobalState(sourceConfig.getDbIdentifier(), null));
 
+        for (String table : sourceConfig.getTables()) {
             Instant startTime = Instant.now();
             if (sourceConfig.isExportEnabled()) {
                 LOG.debug("Export is enabled. Creating export partition in the source coordination store.");

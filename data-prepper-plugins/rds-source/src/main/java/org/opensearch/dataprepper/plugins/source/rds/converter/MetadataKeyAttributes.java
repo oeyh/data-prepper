@@ -21,4 +21,7 @@ public class MetadataKeyAttributes {
     static final String DDB_STREAM_EVENT_NAME_METADATA_ATTRIBUTE = "dynamodb_event_name";
 
     static final String EVENT_TABLE_NAME_METADATA_ATTRIBUTE = "table_name";
+
+    static final String EVENT_S3_PARTITION_KEY = "s3_partition_key";
+
 }
