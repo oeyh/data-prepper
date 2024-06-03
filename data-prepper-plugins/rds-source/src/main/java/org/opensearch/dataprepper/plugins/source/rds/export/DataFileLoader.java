@@ -10,19 +10,16 @@ import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.codec.InputCodec;
 import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.event.EventFactory;
-import org.opensearch.dataprepper.model.plugin.PluginFactory;
 import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.plugins.codec.parquet.ParquetInputCodec;
+import org.opensearch.dataprepper.plugins.source.rds.converter.ExportRecordConverter;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.DataFilePartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.s3.S3Client;
 
-import java.io.BufferedReader;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.time.Duration;
-import java.util.zip.GZIPInputStream;
 
 public class DataFileLoader implements Runnable {
 
@@ -52,6 +49,7 @@ public class DataFileLoader implements Runnable {
     private final S3ObjectReader objectReader;
     private final InputCodec codec;
     private final BufferAccumulator<Record<Event>> bufferAccumulator;
+    private final ExportRecordConverter recordConverter;
 
     public DataFileLoader(final DataFilePartition dataFilePartition,
                           final S3Client s3Client,
@@ -63,6 +61,7 @@ public class DataFileLoader implements Runnable {
         objectReader = new S3ObjectReader(s3Client);
         codec = new ParquetInputCodec(eventFactory);
         bufferAccumulator = BufferAccumulator.create(buffer, DEFAULT_BUFFER_BATCH_SIZE, BUFFER_TIMEOUT);
+        recordConverter = new ExportRecordConverter();
     }
 
     @Override
@@ -73,8 +72,12 @@ public class DataFileLoader implements Runnable {
 
             codec.parse(inputStream, record -> {
                 try {
-                    // TODO: add metadata to event in the record
-                    bufferAccumulator.add(record);
+                    final String tableName = dataFilePartition.getProgressState().get().getSourceTable();
+                    // TODO: primary key to be obtained by querying database schema
+                    final String primaryKeyName = "id";
+                    // TODO: this makes a copy of the event after parsing with the codec, and may not be necessary
+                    Record<Event> transformedRecord = new Record<>(recordConverter.convert(record, tableName, primaryKeyName));
+                    bufferAccumulator.add(transformedRecord);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
