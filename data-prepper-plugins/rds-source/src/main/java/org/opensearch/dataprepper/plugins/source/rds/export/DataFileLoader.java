@@ -73,6 +73,7 @@ public class DataFileLoader implements Runnable {
 
             codec.parse(inputStream, record -> {
                 try {
+                    // TODO: add metadata to event in the record
                     bufferAccumulator.add(record);
                 } catch (Exception e) {
                     throw new RuntimeException(e);

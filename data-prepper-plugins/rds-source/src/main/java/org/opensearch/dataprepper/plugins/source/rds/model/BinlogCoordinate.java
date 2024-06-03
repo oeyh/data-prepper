@@ -5,11 +5,20 @@
 
 package org.opensearch.dataprepper.plugins.source.rds.model;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public class BinlogCoordinate {
+
+    @JsonProperty("binlogFilename")
     private final String binlogFilename;
+
+    @JsonProperty("binlogPosition")
     private final long binlogPosition;
 
-    public BinlogCoordinate(String binlogFilename, long binlogPosition) {
+    @JsonCreator
+    public BinlogCoordinate(@JsonProperty("binlogFilename") String binlogFilename,
+                            @JsonProperty("binlogPosition") long binlogPosition) {
         this.binlogFilename = binlogFilename;
         this.binlogPosition = binlogPosition;
     }

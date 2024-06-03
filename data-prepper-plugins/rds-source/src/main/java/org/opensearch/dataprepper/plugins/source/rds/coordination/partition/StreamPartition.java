@@ -41,6 +41,9 @@ public class StreamPartition extends EnhancedSourcePartition<StreamProgressState
 
     @Override
     public Optional<StreamProgressState> getProgressState() {
+        if (state != null) {
+            return Optional.of(state);
+        }
         return Optional.empty();
     }
 }
