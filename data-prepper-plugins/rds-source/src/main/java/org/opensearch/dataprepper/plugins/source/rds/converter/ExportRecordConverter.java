@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import static org.opensearch.dataprepper.plugins.source.rds.converter.MetadataKeyAttributes.EVENT_NAME_BULK_ACTION_METADATA_ATTRIBUTE;
 import static org.opensearch.dataprepper.plugins.source.rds.converter.MetadataKeyAttributes.EVENT_TABLE_NAME_METADATA_ATTRIBUTE;
+import static org.opensearch.dataprepper.plugins.source.rds.converter.MetadataKeyAttributes.INGESTION_EVENT_TYPE_ATTRIBUTE;
 import static org.opensearch.dataprepper.plugins.source.rds.converter.MetadataKeyAttributes.PRIMARY_KEY_DOCUMENT_ID_METADATA_ATTRIBUTE;
 
 public class ExportRecordConverter {
@@ -33,6 +34,7 @@ public class ExportRecordConverter {
 
         eventMetadata.setAttribute(EVENT_TABLE_NAME_METADATA_ATTRIBUTE, tableName);
         eventMetadata.setAttribute(EVENT_NAME_BULK_ACTION_METADATA_ATTRIBUTE, BULK_API_ACTION);
+        eventMetadata.setAttribute(INGESTION_EVENT_TYPE_ATTRIBUTE, "EXPORT");
 
         final Object primaryKeyValue = record.getData().get(primaryKeyName, Object.class);
         eventMetadata.setAttribute(PRIMARY_KEY_DOCUMENT_ID_METADATA_ATTRIBUTE, primaryKeyValue);

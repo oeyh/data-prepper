@@ -24,4 +24,6 @@ public class MetadataKeyAttributes {
 
     static final String EVENT_S3_PARTITION_KEY = "s3_partition_key";
 
+    static final String INGESTION_EVENT_TYPE_ATTRIBUTE = "ingestion_type";
+
 }
