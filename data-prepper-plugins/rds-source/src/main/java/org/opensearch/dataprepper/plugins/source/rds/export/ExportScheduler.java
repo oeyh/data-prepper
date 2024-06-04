@@ -86,7 +86,9 @@ public class ExportScheduler implements Runnable {
                         LOG.error("The export to S3 failed, it will be retried");
                         closeExportPartitionWithError(exportPartition);
                     } else {
-                        if (!"Completed".equals(exportPartition.getProgressState().get().getStatus())) {
+                        final Optional<ExportProgressState> progressState = exportPartition.getProgressState();
+                        if (progressState.isPresent() && "Completed".equals(progressState.get().getStatus())) {
+                            LOG.debug("Export progress state shows that the export has completed.");
                             completeExport(exportPartition).accept("COMPLETE", null);
                         } else {
                             CompletableFuture<String> checkStatus = CompletableFuture.supplyAsync(() -> checkExportStatus(exportPartition), executor);

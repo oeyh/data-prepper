@@ -13,7 +13,6 @@ import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourceCoordinator;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourcePartition;
 import org.opensearch.dataprepper.plugins.source.rds.RdsSourceConfig;
-import org.opensearch.dataprepper.plugins.source.rds.converter.S3PartitionCreator;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.StreamPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +57,7 @@ public class StreamScheduler implements Runnable {
                 }
 
                 try {
+                    LOG.debug("Waiting to acquire stream partition.");
                     Thread.sleep(DEFAULT_TAKE_LEASE_INTERVAL_MILLIS);
                 } catch (final InterruptedException e) {
                     LOG.info("The StreamScheduler was interrupted while waiting to retry, stopping processing");

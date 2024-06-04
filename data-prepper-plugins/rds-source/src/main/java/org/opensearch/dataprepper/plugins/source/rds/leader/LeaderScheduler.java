@@ -15,7 +15,6 @@ import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.Stre
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.ExportProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.LeaderProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.StreamProgressState;
-import org.opensearch.dataprepper.plugins.source.rds.model.BinlogCoordinate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,17 +93,15 @@ public class LeaderScheduler implements Runnable {
         // So that the jobs can refer to the configuration.
         sourceCoordinator.createPartition(new GlobalState(sourceConfig.getDbIdentifier(), null));
 
-        for (String table : sourceConfig.getTables()) {
+        if (sourceConfig.isExportEnabled()) {
             Instant startTime = Instant.now();
-            if (sourceConfig.isExportEnabled()) {
-                LOG.debug("Export is enabled. Creating export partition in the source coordination store.");
-                createExportPartition(sourceConfig, startTime);
-            }
+            LOG.debug("Export is enabled. Creating export partition in the source coordination store.");
+            createExportPartition(sourceConfig, startTime);
+        }
 
-            if (sourceConfig.isStreamEnabled()) {
-                LOG.debug("Stream is enabled. Creating stream partition in the source coordination store.");
-                createStreamPartition(sourceConfig);
-            }
+        if (sourceConfig.isStreamEnabled()) {
+            LOG.debug("Stream is enabled. Creating stream partition in the source coordination store.");
+            createStreamPartition(sourceConfig);
         }
 
         LOG.debug("Update initialization state");
@@ -128,7 +125,7 @@ public class LeaderScheduler implements Runnable {
         final StreamProgressState progressState = new StreamProgressState();
         progressState.setWaitForExport(sourceConfig.isExportEnabled());
         // For testing
-        progressState.setCurrentPosition(new BinlogCoordinate("mysql-bin-changelog.001891", 1003));
+//        progressState.setCurrentPosition(new BinlogCoordinate("mysql-bin-changelog.001891", 1003));
         StreamPartition streamPartition = new StreamPartition(sourceConfig.getDbIdentifier(), progressState);
         sourceCoordinator.createPartition(streamPartition);
     }

@@ -97,7 +97,7 @@ public class LeaseBasedSourceCoordinator<T> implements SourceCoordinator<T> {
 
     private Instant lastSupplierRunTime;
 
-    static final Duration FORCE_SUPPLIER_AFTER_DURATION = Duration.ofMinutes(5);
+    static final Duration FORCE_SUPPLIER_AFTER_DURATION = Duration.ofMinutes(1);
 
     static {
         try {
