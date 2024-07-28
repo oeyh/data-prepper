@@ -7,6 +7,7 @@ package org.opensearch.dataprepper.plugins.source.rds;
 
 import org.opensearch.dataprepper.aws.api.AwsCredentialsSupplier;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
+import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.model.annotations.DataPrepperPlugin;
 import org.opensearch.dataprepper.model.annotations.DataPrepperPluginConstructor;
 import org.opensearch.dataprepper.model.buffer.Buffer;
@@ -35,6 +36,8 @@ public class RdsSource implements Source<Record<Event>>, UsesEnhancedSourceCoord
     private final PluginMetrics pluginMetrics;
     private final RdsSourceConfig sourceConfig;
     private final EventFactory eventFactory;
+    private final AcknowledgementSetManager acknowledgementSetManager;
+    private final boolean acknowledgementsEnabled;
     private EnhancedSourceCoordinator sourceCoordinator;
     private RdsService rdsService;
 
@@ -42,10 +45,13 @@ public class RdsSource implements Source<Record<Event>>, UsesEnhancedSourceCoord
     public RdsSource(final PluginMetrics pluginMetrics,
                      final RdsSourceConfig sourceConfig,
                      final EventFactory eventFactory,
-                     final AwsCredentialsSupplier awsCredentialsSupplier) {
+                     final AwsCredentialsSupplier awsCredentialsSupplier,
+                     final AcknowledgementSetManager acknowledgementSetManager) {
         this.pluginMetrics = pluginMetrics;
         this.sourceConfig = sourceConfig;
         this.eventFactory = eventFactory;
+        this.acknowledgementSetManager = acknowledgementSetManager;
+        this.acknowledgementsEnabled = sourceConfig.isAcknowledgmentsEnabled();
 
         clientFactory = new ClientFactory(awsCredentialsSupplier, sourceConfig.getAwsAuthenticationConfig());
     }
@@ -56,7 +62,7 @@ public class RdsSource implements Source<Record<Event>>, UsesEnhancedSourceCoord
         Objects.requireNonNull(sourceCoordinator);
         sourceCoordinator.createPartition(new LeaderPartition());
 
-        rdsService = new RdsService(sourceCoordinator, sourceConfig, eventFactory, clientFactory, pluginMetrics);
+        rdsService = new RdsService(sourceCoordinator, sourceConfig, eventFactory, clientFactory, pluginMetrics, acknowledgementSetManager);
 
         LOG.info("Start RDS service");
         rdsService.start(buffer);
@@ -79,5 +85,10 @@ public class RdsSource implements Source<Record<Event>>, UsesEnhancedSourceCoord
     @Override
     public Function<SourcePartitionStoreItem, EnhancedSourcePartition> getPartitionFactory() {
         return new PartitionFactory();
+    }
+
+    @Override
+    public boolean areAcknowledgementsEnabled() {
+        return acknowledgementsEnabled;
     }
 }

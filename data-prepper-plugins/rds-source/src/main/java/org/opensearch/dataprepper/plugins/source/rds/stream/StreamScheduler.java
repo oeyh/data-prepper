@@ -7,6 +7,7 @@ package org.opensearch.dataprepper.plugins.source.rds.stream;
 
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
+import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.record.Record;
@@ -30,6 +31,7 @@ public class StreamScheduler implements Runnable {
     private final RdsSourceConfig sourceConfig;
     private final BinaryLogClient binaryLogClient;
     private final PluginMetrics pluginMetrics;
+    private final AcknowledgementSetManager acknowledgementSetManager;
 
     private volatile boolean shutdownRequested = false;
 
@@ -37,13 +39,14 @@ public class StreamScheduler implements Runnable {
                            final RdsSourceConfig sourceConfig,
                            final BinaryLogClient binaryLogClient,
                            final Buffer<Record<Event>> buffer,
-                           final PluginMetrics pluginMetrics) {
+                           final PluginMetrics pluginMetrics,
+                           final AcknowledgementSetManager acknowledgementSetManager) {
         this.sourceCoordinator = sourceCoordinator;
         this.sourceConfig = sourceConfig;
         this.binaryLogClient = binaryLogClient;
-        this.binaryLogClient.registerEventListener(new BinlogEventListener(buffer, sourceConfig, pluginMetrics));
+        this.binaryLogClient.registerEventListener(new BinlogEventListener(buffer, sourceConfig, pluginMetrics, acknowledgementSetManager));
         this.pluginMetrics = pluginMetrics;
-
+        this.acknowledgementSetManager = acknowledgementSetManager;
     }
 
     @Override

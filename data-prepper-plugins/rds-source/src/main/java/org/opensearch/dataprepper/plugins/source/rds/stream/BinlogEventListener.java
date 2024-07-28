@@ -16,6 +16,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import org.opensearch.dataprepper.buffer.common.BufferAccumulator;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
+import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.opensearch.OpenSearchBulkActions;
@@ -56,7 +57,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
     private final List<String> tableNames;
     private final String s3Prefix;
     private final PluginMetrics pluginMetrics;
-
+    private final AcknowledgementSetManager acknowledgementSetManager;
     private final Counter changeEventSuccessCounter;
     private final Counter changeEventErrorCounter;
     private final DistributionSummary bytesReceivedSummary;
@@ -64,13 +65,15 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
 
     public BinlogEventListener(final Buffer<Record<Event>> buffer,
                                final RdsSourceConfig sourceConfig,
-                               final PluginMetrics pluginMetrics) {
+                               final PluginMetrics pluginMetrics,
+                               final AcknowledgementSetManager acknowledgementSetManager) {
         tableMetadataMap = new HashMap<>();
         recordConverter = new StreamRecordConverter(sourceConfig.getStream().getPartitionCount());
         bufferAccumulator = BufferAccumulator.create(buffer, DEFAULT_BUFFER_BATCH_SIZE, BUFFER_TIMEOUT);
         s3Prefix = sourceConfig.getS3Prefix();
         tableNames = sourceConfig.getTableNames();
         this.pluginMetrics = pluginMetrics;
+        this.acknowledgementSetManager = acknowledgementSetManager;
 
         changeEventSuccessCounter = pluginMetrics.counter(CHANGE_EVENTS_PROCESSED_COUNT);
         changeEventErrorCounter = pluginMetrics.counter(CHANGE_EVENTS_PROCESSING_ERROR_COUNT);
@@ -80,7 +83,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
 
     @Override
     public void onEvent(com.github.shyiko.mysql.binlog.event.Event event) {
-        EventType eventType = event.getHeader().getEventType();
+        final EventType eventType = event.getHeader().getEventType();
 
         switch (eventType) {
             case TABLE_MAP:
@@ -116,109 +119,43 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
     }
 
     void handleInsertEvent(com.github.shyiko.mysql.binlog.event.Event event) {
-        final long bytes = event.toString().getBytes().length;
-        bytesReceivedSummary.record(bytes);
-
         LOG.debug("Handling insert event");
         final WriteRowsEventData data = event.getData();
-        if (!tableMetadataMap.containsKey(data.getTableId())) {
-            LOG.debug("Cannot find table metadata, the event is likely not from a table of interest or the table metadata was not read");
-            return;
-        }
-        final TableMetadata tableMetadata = tableMetadataMap.get(data.getTableId());
-        final String fullTableName = tableMetadata.getFullTableName();
-        if (!isTableOfInterest(fullTableName)) {
-            LOG.debug("The event is not from a table of interest");
-            return;
-        }
-        final List<String> columnNames = tableMetadata.getColumnNames();
-        final List<String> primaryKeys = tableMetadata.getPrimaryKeys();
-        final long eventTimestampMillis = event.getHeader().getTimestamp();
-
-        // Construct data prepper JacksonEvent
-        int eventCount = 0;
-        for (final Object[] rowDataArray : data.getRows()) {
-            final Map<String, Object> rowDataMap = new HashMap<>();
-            for (int i = 0; i < rowDataArray.length; i++) {
-                rowDataMap.put(columnNames.get(i), rowDataArray[i]);
-            }
-
-            Event pipelineEvent = recordConverter.convert(
-                    rowDataMap,
-                    tableMetadata.getDatabaseName(),
-                    tableMetadata.getTableName(),
-                    event.getHeader().getEventType(),
-                    OpenSearchBulkActions.INDEX,
-                    primaryKeys,
-                    s3Prefix,
-                    eventTimestampMillis,
-                    eventTimestampMillis);
-            addToBuffer(new Record<>(pipelineEvent));
-            eventCount++;
-        }
-        bytesProcessedSummary.record(bytes);
-
-        flushBuffer(eventCount);
+        handleRowChangeEvent(event, data.getTableId(), data.getRows(), OpenSearchBulkActions.INDEX);
     }
 
     void handleUpdateEvent(com.github.shyiko.mysql.binlog.event.Event event) {
-        final long bytes = event.toString().getBytes().length;
-        bytesReceivedSummary.record(bytes);
-
         LOG.debug("Handling update event");
         final UpdateRowsEventData data = event.getData();
-        if (!tableMetadataMap.containsKey(data.getTableId())) {
-            return;
-        }
-        final TableMetadata tableMetadata = tableMetadataMap.get(data.getTableId());
-        final String fullTableName = tableMetadata.getFullTableName();
-        if (!isTableOfInterest(fullTableName)) {
-            LOG.debug("The event is not from a table of interest");
-            return;
-        }
-        final List<String> columnNames = tableMetadata.getColumnNames();
-        final List<String> primaryKeys = tableMetadata.getPrimaryKeys();
-        final long eventTimestampMillis = event.getHeader().getTimestamp();
 
-        int eventCount = 0;
-        for (Map.Entry<Serializable[], Serializable[]> updatedRow : data.getRows()) {
-            // updatedRow contains data before update as key and data after update as value
-            final Object[] rowData = updatedRow.getValue();
+        // updatedRow contains data before update as key and data after update as value
+        final List<Serializable[]> rows = data.getRows().stream()
+                .map(Map.Entry::getValue)
+                .collect(Collectors.toList());
 
-            final Map<String, Object> dataMap = new HashMap<>();
-            for (int i = 0; i < rowData.length; i++) {
-                dataMap.put(columnNames.get(i), rowData[i]);
-            }
-
-            final Event pipelineEvent = recordConverter.convert(
-                    dataMap,
-                    tableMetadata.getDatabaseName(),
-                    tableMetadata.getTableName(),
-                    event.getHeader().getEventType(),
-                    OpenSearchBulkActions.INDEX,
-                    primaryKeys,
-                    s3Prefix,
-                    eventTimestampMillis,
-                    eventTimestampMillis);
-            addToBuffer(new Record<>(pipelineEvent));
-            eventCount++;
-        }
-        bytesProcessedSummary.record(bytes);
-
-        flushBuffer(eventCount);
+        handleRowChangeEvent(event, data.getTableId(), rows, OpenSearchBulkActions.INDEX);
     }
 
     void handleDeleteEvent(com.github.shyiko.mysql.binlog.event.Event event) {
+        LOG.debug("Handling delete event");
+        final DeleteRowsEventData data = event.getData();
+
+        handleRowChangeEvent(event, data.getTableId(), data.getRows(), OpenSearchBulkActions.DELETE);
+    }
+
+    void handleRowChangeEvent(com.github.shyiko.mysql.binlog.event.Event event,
+                                      long tableId,
+                                      List<Serializable[]> rows,
+                                      OpenSearchBulkActions bulkAction) {
         final long bytes = event.toString().getBytes().length;
         bytesReceivedSummary.record(bytes);
 
-        LOG.debug("Handling delete event");
-        final DeleteRowsEventData data = event.getData();
-        if (!tableMetadataMap.containsKey(data.getTableId())) {
+
+        if (!tableMetadataMap.containsKey(tableId)) {
             LOG.debug("Cannot find table metadata, the event is likely not from a table of interest or the table metadata was not read");
             return;
         }
-        final TableMetadata tableMetadata = tableMetadataMap.get(data.getTableId());
+        final TableMetadata tableMetadata = tableMetadataMap.get(tableId);
         final String fullTableName = tableMetadata.getFullTableName();
         if (!isTableOfInterest(fullTableName)) {
             LOG.debug("The event is not from a table of interest");
@@ -229,7 +166,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
         final long eventTimestampMillis = event.getHeader().getTimestamp();
 
         int eventCount = 0;
-        for (Object[] rowDataArray : data.getRows()) {
+        for (Object[] rowDataArray : rows) {
             final Map<String, Object> rowDataMap = new HashMap<>();
             for (int i = 0; i < rowDataArray.length; i++) {
                 rowDataMap.put(columnNames.get(i), rowDataArray[i]);
@@ -240,7 +177,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
                     tableMetadata.getDatabaseName(),
                     tableMetadata.getTableName(),
                     event.getHeader().getEventType(),
-                    OpenSearchBulkActions.DELETE,
+                    bulkAction,
                     primaryKeys,
                     s3Prefix,
                     eventTimestampMillis,

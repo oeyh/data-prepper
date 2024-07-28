@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
+import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
 import org.opensearch.dataprepper.model.buffer.Buffer;
 import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.record.Record;
@@ -49,6 +50,9 @@ class StreamSchedulerTest {
 
     @Mock
     private PluginMetrics pluginMetrics;
+
+    @Mock
+    private AcknowledgementSetManager acknowledgementSetManager;
 
     @Mock
     private Buffer<Record<Event>> buffer;
@@ -111,6 +115,6 @@ class StreamSchedulerTest {
     }
 
     private StreamScheduler createObjectUnderTest() {
-        return new StreamScheduler(sourceCoordinator, sourceConfig, binaryLogClient, buffer, pluginMetrics);
+        return new StreamScheduler(sourceCoordinator, sourceConfig, binaryLogClient, buffer, pluginMetrics, acknowledgementSetManager);
     }
 }
