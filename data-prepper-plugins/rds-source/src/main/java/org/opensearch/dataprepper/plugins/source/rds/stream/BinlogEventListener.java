@@ -14,6 +14,7 @@ import com.github.shyiko.mysql.binlog.event.TableMapEventData;
 import com.github.shyiko.mysql.binlog.event.TableMapEventMetadata;
 import com.github.shyiko.mysql.binlog.event.UpdateRowsEventData;
 import com.github.shyiko.mysql.binlog.event.WriteRowsEventData;
+import com.github.shyiko.mysql.binlog.event.deserialization.json.JsonBinary;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Timer;
@@ -241,6 +242,15 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
         for (Object[] rowDataArray : rows) {
             final Map<String, Object> rowDataMap = new HashMap<>();
             for (int i = 0; i < rowDataArray.length; i++) {
+                if (columnNames.get(i).contains("json")) {
+                    try {
+                        final String jsonString = JsonBinary.parseAsString((byte[]) rowDataArray[i]);
+                        rowDataMap.put(columnNames.get(i), jsonString);
+                        continue;
+                    } catch (Exception e) {
+                        LOG.error("Failed to parse json binary", e);
+                    }
+                }
                 rowDataMap.put(columnNames.get(i), rowDataArray[i]);
             }
 

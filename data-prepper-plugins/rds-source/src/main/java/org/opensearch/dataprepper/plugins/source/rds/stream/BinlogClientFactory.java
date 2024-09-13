@@ -26,8 +26,8 @@ public class BinlogClientFactory {
 
     public BinaryLogClient create() {
         return new BinaryLogClient(
-                dbMetadata.getHostName(),
-                dbMetadata.getPort(),
+                "127.0.0.1",
+                3306,
                 sourceConfig.getAuthenticationConfig().getUsername(),
                 sourceConfig.getAuthenticationConfig().getPassword());
     }
