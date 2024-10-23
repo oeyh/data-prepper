@@ -29,7 +29,12 @@ import org.opensearch.dataprepper.model.opensearch.OpenSearchBulkActions;
 import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.plugins.source.rds.RdsSourceConfig;
 import org.opensearch.dataprepper.plugins.source.rds.converter.StreamRecordConverter;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.StreamPartition;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.state.StreamProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.model.BinlogCoordinate;
+import org.opensearch.dataprepper.plugins.source.rds.model.ForeignKeyAction;
+import org.opensearch.dataprepper.plugins.source.rds.model.ForeignKeyRelation;
+import org.opensearch.dataprepper.plugins.source.rds.model.ParentTable;
 import org.opensearch.dataprepper.plugins.source.rds.model.TableMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,14 +42,17 @@ import org.slf4j.LoggerFactory;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class BinlogEventListener implements BinaryLogClient.EventListener {
 
@@ -64,6 +72,9 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
      */
     private final Map<Long, TableMetadata> tableMetadataMap;
 
+    private final StreamPartition streamPartition;
+    private final List<ForeignKeyRelation> foreignKeyRelations;
+    private final Map<String, ParentTable> parentTableMap;
     private final StreamRecordConverter recordConverter;
     private final BinaryLogClient binaryLogClient;
     private final Buffer<Record<Event>> buffer;
@@ -86,13 +97,24 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
      */
     private BinlogCoordinate currentBinlogCoordinate;
 
-    public BinlogEventListener(final Buffer<Record<Event>> buffer,
+    public BinlogEventListener(final StreamPartition streamPartition,
+                               final Buffer<Record<Event>> buffer,
                                final RdsSourceConfig sourceConfig,
                                final String s3Prefix,
                                final PluginMetrics pluginMetrics,
                                final BinaryLogClient binaryLogClient,
                                final StreamCheckpointer streamCheckpointer,
                                final AcknowledgementSetManager acknowledgementSetManager) {
+        this.streamPartition = streamPartition;
+
+        // Collect foreign key relations
+        if (streamPartition.getProgressState().isPresent()) {
+            foreignKeyRelations = streamPartition.getProgressState().get().getForeignKeyRelations();
+        } else {
+            foreignKeyRelations = Collections.emptyList();
+        }
+        parentTableMap = getParentTableMap();
+
         this.buffer = buffer;
         this.binaryLogClient = binaryLogClient;
         tableMetadataMap = new HashMap<>();
@@ -117,14 +139,15 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
         eventProcessingTimer = pluginMetrics.timer(REPLICATION_LOG_EVENT_PROCESSING_TIME);
     }
 
-    public static BinlogEventListener create(final Buffer<Record<Event>> buffer,
+    public static BinlogEventListener create(final StreamPartition streamPartition,
+                                             final Buffer<Record<Event>> buffer,
                                              final RdsSourceConfig sourceConfig,
                                              final String s3Prefix,
                                              final PluginMetrics pluginMetrics,
                                              final BinaryLogClient binaryLogClient,
                                              final StreamCheckpointer streamCheckpointer,
                                              final AcknowledgementSetManager acknowledgementSetManager) {
-        return new BinlogEventListener(buffer, sourceConfig, s3Prefix, pluginMetrics, binaryLogClient, streamCheckpointer, acknowledgementSetManager);
+        return new BinlogEventListener(streamPartition, buffer, sourceConfig, s3Prefix, pluginMetrics, binaryLogClient, streamCheckpointer, acknowledgementSetManager);
     }
 
     @Override
@@ -194,12 +217,62 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
     void handleInsertEvent(com.github.shyiko.mysql.binlog.event.Event event) {
         LOG.debug("Handling insert event");
         final WriteRowsEventData data = event.getData();
+
+        if (!isValidTableId(data.getTableId())) {
+            return;
+        }
+
         handleRowChangeEvent(event, data.getTableId(), data.getRows(), OpenSearchBulkActions.INDEX);
     }
 
     void handleUpdateEvent(com.github.shyiko.mysql.binlog.event.Event event) {
         LOG.debug("Handling update event");
         final UpdateRowsEventData data = event.getData();
+
+        if (!isValidTableId(data.getTableId())) {
+            return;
+        }
+
+        // Check if a Cascade action may be involved
+        final TableMetadata tableMetadata = tableMetadataMap.get(data.getTableId());
+        // DS needed:
+        // Given table name, know if it's a parent table ==> need a set of parent tables
+        // Given table name, know which columns are referenced by child tables AND have cascade actions defined ==> in each parent tables, need a hash map of column name to set of ForeignKeyRelations
+        // Now given table name and changed columns, know if cascade actions may happen and associated ForeignKeyRelations ==> use the same hashmap as above
+        if (parentTableMap.containsKey(tableMetadata.getFullTableName())) {
+            final ParentTable parentTable = parentTableMap.get(tableMetadata.getFullTableName());
+            // get columns that are associated with cascade update actions
+            final Set<String> columnsOfInterest = new HashSet<>();
+            for (String column : parentTable.getReferencedColumnMap().keySet()) {
+                for (ForeignKeyRelation foreignKeyRelation : parentTable.getReferencedColumnMap().get(column)) {
+                    if (ForeignKeyAction.isCascadeAction(foreignKeyRelation.getUpdateAction())) {
+                        columnsOfInterest.add(column);
+                        break;
+                    }
+                }
+            }
+
+
+            for (Map.Entry<Serializable[], Serializable[]> row : data.getRows()) {
+                // find out for each row, which columns are changing
+                final Set<String> updatedColumns = IntStream.range(0, data.getRows().size())
+                        .filter(i -> row.getKey()[i] != row.getValue()[i])
+                        .mapToObj(i -> tableMetadata.getColumnNames().get(i))
+                        .collect(Collectors.toSet());
+
+                // are changing columns associated with cascade update?
+                for (String column : updatedColumns) {
+                    if (parentTable.getReferencedColumnMap().containsKey(column)) {
+                        for (ForeignKeyRelation foreignKeyRelation : parentTable.getReferencedColumnMap().get(column)) {
+                            if (ForeignKeyAction.isCascadeAction(foreignKeyRelation.getUpdateAction())) {
+                                // Create Resync Partition
+                                createResyncPartition();
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // updatedRow contains data before update as key and data after update as value
         final List<Serializable[]> rows = data.getRows().stream()
@@ -213,7 +286,61 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
         LOG.debug("Handling delete event");
         final DeleteRowsEventData data = event.getData();
 
+        if (!isValidTableId(data.getTableId())) {
+            return;
+        }
+
         handleRowChangeEvent(event, data.getTableId(), data.getRows(), OpenSearchBulkActions.DELETE);
+    }
+
+    private Map<String, ParentTable> getParentTableMap() {
+        final Map<String, ParentTable> parentTableMap;
+        parentTableMap = new HashMap<>();
+        for (ForeignKeyRelation foreignKeyRelation : foreignKeyRelations) {
+            if (!ForeignKeyRelation.containsCascadeAction(foreignKeyRelation)) {
+                continue;
+            }
+            final String fullParentTableName = getFullTableName(foreignKeyRelation.getDatabaseName(), foreignKeyRelation.getParentTableName());
+            ParentTable parentTable;
+            if (!parentTableMap.containsKey(fullParentTableName)) {
+                Map<String, List<ForeignKeyRelation>> referencedColumnMap = new HashMap<>();
+                referencedColumnMap.put(foreignKeyRelation.getReferencedKeyName(), new ArrayList<>(List.of(foreignKeyRelation)));
+                parentTable = ParentTable.builder()
+                        .databaseName(foreignKeyRelation.getDatabaseName())
+                        .tableName(foreignKeyRelation.getParentTableName())
+                        .referencedColumnMap(referencedColumnMap)
+                        .build();
+                parentTableMap.put(fullParentTableName, parentTable);
+            } else {
+                parentTable = parentTableMap.get(fullParentTableName);
+                if (!parentTable.getReferencedColumnMap().containsKey(foreignKeyRelation.getReferencedKeyName())) {
+                    parentTable.getReferencedColumnMap().put(foreignKeyRelation.getReferencedKeyName(), new ArrayList<>(List.of(foreignKeyRelation)));
+                } else {
+                    parentTable.getReferencedColumnMap().get(foreignKeyRelation.getReferencedKeyName()).add(foreignKeyRelation);
+                }
+            }
+        }
+        return parentTableMap;
+    }
+
+    private boolean
+
+    private String getFullTableName(String database, String table) {
+        return database + "." + table;
+    }
+
+    private boolean isValidTableId(long tableId) {
+        if (!tableMetadataMap.containsKey(tableId)) {
+            LOG.debug("Cannot find table metadata, the event is likely not from a table of interest or the table metadata was not read");
+            return false;
+        }
+
+        if (!isTableOfInterest(tableMetadataMap.get(tableId).getFullTableName())) {
+            LOG.debug("The event is not from a table of interest");
+            return false;
+        }
+
+        return true;
     }
 
     private void handleRowChangeEvent(com.github.shyiko.mysql.binlog.event.Event event,
@@ -236,16 +363,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
         final long bytes = event.toString().getBytes().length;
         bytesReceivedSummary.record(bytes);
 
-        if (!tableMetadataMap.containsKey(tableId)) {
-            LOG.debug("Cannot find table metadata, the event is likely not from a table of interest or the table metadata was not read");
-            return;
-        }
         final TableMetadata tableMetadata = tableMetadataMap.get(tableId);
-        final String fullTableName = tableMetadata.getFullTableName();
-        if (!isTableOfInterest(fullTableName)) {
-            LOG.debug("The event is not from a table of interest");
-            return;
-        }
         final List<String> columnNames = tableMetadata.getColumnNames();
         final List<String> primaryKeys = tableMetadata.getPrimaryKeys();
         final long eventTimestampMillis = event.getHeader().getTimestamp();

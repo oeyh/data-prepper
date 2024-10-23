@@ -6,6 +6,7 @@
 package org.opensearch.dataprepper.plugins.source.rds.model;
 
 import java.sql.DatabaseMetaData;
+import java.util.Set;
 
 public enum ForeignKeyAction {
     CASCADE,
@@ -30,5 +31,9 @@ public enum ForeignKeyAction {
             default:
                 return UNKNOWN;
         }
+    }
+
+    public static boolean isCascadeAction(ForeignKeyAction foreignKeyAction) {
+        return Set.of(CASCADE, SET_DEFAULT, SET_NULL).contains(foreignKeyAction);
     }
 }

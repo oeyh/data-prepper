@@ -34,6 +34,7 @@ public class SchemaManager {
     public static final String UPDATE_RULE = "UPDATE_RULE";
     public static final String DELETE_RULE = "DELETE_RULE";
     private final ConnectionManager connectionManager;
+    private List<ForeignKeyRelation> foreignKeyRelations;
 
     public SchemaManager(ConnectionManager connectionManager) {
         this.connectionManager = connectionManager;
@@ -81,7 +82,6 @@ public class SchemaManager {
     public List<ForeignKeyRelation> getForeignKeyRelations(List<String> tableNames) {
         int retry = 0;
         while (retry <= NUM_OF_RETRIES) {
-            final List<ForeignKeyRelation> foreignKeyRelations = new ArrayList<>();
             try (final Connection connection = connectionManager.getConnection()) {
                 DatabaseMetaData metaData = connection.getMetaData();
                 String[] tableTypes = new String[]{"TABLE"};
@@ -101,6 +101,7 @@ public class SchemaManager {
                             short deleteRule = foreignKeys.getShort(DELETE_RULE);
 
                             ForeignKeyRelation foreignKeyRelation = ForeignKeyRelation.builder()
+                                    .databaseName(database)
                                     .parentTableName(pkTableName)
                                     .referencedKeyName(pkColumnName)
                                     .childTableName(fkTableName)
