@@ -114,7 +114,7 @@ public class StreamWorkerTaskRefresher implements PluginConfigObserver<RdsSource
     private void refreshTask(RdsSourceConfig sourceConfig) {
         final BinaryLogClient binaryLogClient = binlogClientFactory.create();
         binaryLogClient.registerEventListener(BinlogEventListener.create(
-                streamPartition, buffer, sourceConfig, s3Prefix, pluginMetrics, binaryLogClient, streamCheckpointer, acknowledgementSetManager));
+                sourceCoordinator, streamPartition, buffer, sourceConfig, s3Prefix, pluginMetrics, binaryLogClient, streamCheckpointer, acknowledgementSetManager));
         final StreamWorker streamWorker = StreamWorker.create(sourceCoordinator, binaryLogClient, pluginMetrics);
         executorService.submit(() -> streamWorker.processStream(streamPartition));
     }

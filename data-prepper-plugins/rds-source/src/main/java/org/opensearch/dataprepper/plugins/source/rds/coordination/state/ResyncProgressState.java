@@ -5,5 +5,16 @@
 
 package org.opensearch.dataprepper.plugins.source.rds.coordination.state;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Getter;
+import lombok.Setter;
+
+@Setter
+@Getter
 public class ResyncProgressState {
+    @JsonProperty("foreignKeyName")
+    private String foreignKeyName;
+
+    @JsonProperty("updatedValue")
+    private Object updatedValue;
 }

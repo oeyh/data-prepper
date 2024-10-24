@@ -34,7 +34,6 @@ public class SchemaManager {
     public static final String UPDATE_RULE = "UPDATE_RULE";
     public static final String DELETE_RULE = "DELETE_RULE";
     private final ConnectionManager connectionManager;
-    private List<ForeignKeyRelation> foreignKeyRelations;
 
     public SchemaManager(ConnectionManager connectionManager) {
         this.connectionManager = connectionManager;
@@ -83,6 +82,7 @@ public class SchemaManager {
         int retry = 0;
         while (retry <= NUM_OF_RETRIES) {
             try (final Connection connection = connectionManager.getConnection()) {
+                final List<ForeignKeyRelation> foreignKeyRelations = new ArrayList<>();
                 DatabaseMetaData metaData = connection.getMetaData();
                 String[] tableTypes = new String[]{"TABLE"};
                 for (final String tableName : tableNames) {

@@ -15,17 +15,24 @@ public class ResyncPartition extends EnhancedSourcePartition<ResyncProgressState
 
     public static final String PARTITION_TYPE = "RESYNC";
 
-    private final String dbIdentifier;
+    private final String database;
+    private final String table;
+    private final long timestamp;
     private final ResyncProgressState state;
 
-    public ResyncPartition(String dbIdentifier, ResyncProgressState state) {
-        this.dbIdentifier = dbIdentifier;
+    public ResyncPartition(String database, String table, long timestamp, ResyncProgressState state) {
+        this.database = database;
+        this.table = table;
+        this.timestamp = timestamp;
         this.state = state;
     }
 
     public ResyncPartition(SourcePartitionStoreItem sourcePartitionStoreItem) {
         setSourcePartitionStoreItem(sourcePartitionStoreItem);
-        dbIdentifier = sourcePartitionStoreItem.getSourcePartitionKey();
+        String[] keySplits = sourcePartitionStoreItem.getSourcePartitionKey().split("\\|");
+        database = keySplits[0];
+        table = keySplits[1];
+        timestamp = Long.parseLong(keySplits[2]);
         state = convertStringToPartitionProgressState(ResyncProgressState.class, sourcePartitionStoreItem.getPartitionProgressState());
     }
 
@@ -36,7 +43,7 @@ public class ResyncPartition extends EnhancedSourcePartition<ResyncProgressState
 
     @Override
     public String getPartitionKey() {
-        return dbIdentifier;
+        return database + "|" + table + "|" + timestamp;
     }
 
     @Override

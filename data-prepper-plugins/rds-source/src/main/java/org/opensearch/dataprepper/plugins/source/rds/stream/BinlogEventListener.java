@@ -27,9 +27,12 @@ import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.event.JacksonEvent;
 import org.opensearch.dataprepper.model.opensearch.OpenSearchBulkActions;
 import org.opensearch.dataprepper.model.record.Record;
+import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourceCoordinator;
 import org.opensearch.dataprepper.plugins.source.rds.RdsSourceConfig;
 import org.opensearch.dataprepper.plugins.source.rds.converter.StreamRecordConverter;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.ResyncPartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.StreamPartition;
+import org.opensearch.dataprepper.plugins.source.rds.coordination.state.ResyncProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.state.StreamProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.model.BinlogCoordinate;
 import org.opensearch.dataprepper.plugins.source.rds.model.ForeignKeyAction;
@@ -72,6 +75,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
      */
     private final Map<Long, TableMetadata> tableMetadataMap;
 
+    private final EnhancedSourceCoordinator sourceCoordinator;
     private final StreamPartition streamPartition;
     private final List<ForeignKeyRelation> foreignKeyRelations;
     private final Map<String, ParentTable> parentTableMap;
@@ -97,7 +101,8 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
      */
     private BinlogCoordinate currentBinlogCoordinate;
 
-    public BinlogEventListener(final StreamPartition streamPartition,
+    public BinlogEventListener(final EnhancedSourceCoordinator sourceCoordinator,
+                               final StreamPartition streamPartition,
                                final Buffer<Record<Event>> buffer,
                                final RdsSourceConfig sourceConfig,
                                final String s3Prefix,
@@ -105,6 +110,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
                                final BinaryLogClient binaryLogClient,
                                final StreamCheckpointer streamCheckpointer,
                                final AcknowledgementSetManager acknowledgementSetManager) {
+        this.sourceCoordinator = sourceCoordinator;
         this.streamPartition = streamPartition;
 
         // Collect foreign key relations
@@ -139,7 +145,8 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
         eventProcessingTimer = pluginMetrics.timer(REPLICATION_LOG_EVENT_PROCESSING_TIME);
     }
 
-    public static BinlogEventListener create(final StreamPartition streamPartition,
+    public static BinlogEventListener create(final EnhancedSourceCoordinator sourceCoordinator,
+                                             final StreamPartition streamPartition,
                                              final Buffer<Record<Event>> buffer,
                                              final RdsSourceConfig sourceConfig,
                                              final String s3Prefix,
@@ -147,7 +154,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
                                              final BinaryLogClient binaryLogClient,
                                              final StreamCheckpointer streamCheckpointer,
                                              final AcknowledgementSetManager acknowledgementSetManager) {
-        return new BinlogEventListener(streamPartition, buffer, sourceConfig, s3Prefix, pluginMetrics, binaryLogClient, streamCheckpointer, acknowledgementSetManager);
+        return new BinlogEventListener(sourceCoordinator, streamPartition, buffer, sourceConfig, s3Prefix, pluginMetrics, binaryLogClient, streamCheckpointer, acknowledgementSetManager);
     }
 
     @Override
@@ -234,40 +241,36 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
         }
 
         // Check if a Cascade action may be involved
+        // TODO: define all those in a separate Class?
         final TableMetadata tableMetadata = tableMetadataMap.get(data.getTableId());
-        // DS needed:
-        // Given table name, know if it's a parent table ==> need a set of parent tables
-        // Given table name, know which columns are referenced by child tables AND have cascade actions defined ==> in each parent tables, need a hash map of column name to set of ForeignKeyRelations
-        // Now given table name and changed columns, know if cascade actions may happen and associated ForeignKeyRelations ==> use the same hashmap as above
+
         if (parentTableMap.containsKey(tableMetadata.getFullTableName())) {
             final ParentTable parentTable = parentTableMap.get(tableMetadata.getFullTableName());
-            // get columns that are associated with cascade update actions
-            final Set<String> columnsOfInterest = new HashSet<>();
-            for (String column : parentTable.getReferencedColumnMap().keySet()) {
-                for (ForeignKeyRelation foreignKeyRelation : parentTable.getReferencedColumnMap().get(column)) {
-                    if (ForeignKeyAction.isCascadeAction(foreignKeyRelation.getUpdateAction())) {
-                        columnsOfInterest.add(column);
-                        break;
-                    }
-                }
-            }
-
 
             for (Map.Entry<Serializable[], Serializable[]> row : data.getRows()) {
-                // find out for each row, which columns are changing
-                final Set<String> updatedColumns = IntStream.range(0, data.getRows().size())
+                // Find out for this row, which columns are changing
+                LOG.debug("Checking for updated columns");
+                final Map<String, Object> updatedColumnsAndValues = IntStream.range(0, row.getKey().length)
                         .filter(i -> row.getKey()[i] != row.getValue()[i])
                         .mapToObj(i -> tableMetadata.getColumnNames().get(i))
-                        .collect(Collectors.toSet());
+                        .collect(Collectors.toMap(
+                                column -> column,
+                                column -> row.getValue()[tableMetadata.getColumnNames().indexOf(column)]
+                        ));
+                LOG.debug("These columns were updated: {}", updatedColumnsAndValues);
 
-                // are changing columns associated with cascade update?
-                for (String column : updatedColumns) {
-                    if (parentTable.getReferencedColumnMap().containsKey(column)) {
-                        for (ForeignKeyRelation foreignKeyRelation : parentTable.getReferencedColumnMap().get(column)) {
-                            if (ForeignKeyAction.isCascadeAction(foreignKeyRelation.getUpdateAction())) {
-                                // Create Resync Partition
-                                createResyncPartition();
-                            }
+                LOG.debug("Decide whether to create resync partitions");
+                // Create resync partition if changing columns are associated with cascading update
+                for (String column : updatedColumnsAndValues.keySet()) {
+                    if (parentTable.getColumnsWithCascadingUpdate().containsKey(column)) {
+                        for (ForeignKeyRelation foreignKeyRelation : parentTable.getColumnsWithCascadingUpdate().get(column)) {
+                            // Create Resync Partition
+                            createResyncPartition(
+                                    foreignKeyRelation.getDatabaseName(),
+                                    foreignKeyRelation.getChildTableName(),
+                                    foreignKeyRelation.getForeignKeyName(),
+                                    updatedColumnsAndValues.get(column),
+                                    event.getHeader().getTimestamp());
                         }
                     }
                 }
@@ -320,10 +323,19 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
                 }
             }
         }
+        LOG.debug("ParentTables are {}", parentTableMap.keySet());
         return parentTableMap;
     }
 
-    private boolean
+    private void createResyncPartition(String database, String childTable, String foreignKeyName, Object updatedValue, long eventTimestampMillis) {
+        LOG.debug("Create Resyc partition for table {} and column {} with new value {}", childTable, foreignKeyName, updatedValue);
+        final ResyncProgressState progressState = new ResyncProgressState();
+        progressState.setForeignKeyName(foreignKeyName);
+        progressState.setUpdatedValue(updatedValue);
+
+        final ResyncPartition resyncPartition = new ResyncPartition(database, childTable, eventTimestampMillis, progressState);
+        sourceCoordinator.createPartition(resyncPartition);
+    }
 
     private String getFullTableName(String database, String table) {
         return database + "." + table;

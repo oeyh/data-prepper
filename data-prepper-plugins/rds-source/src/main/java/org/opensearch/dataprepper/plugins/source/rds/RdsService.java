@@ -152,8 +152,8 @@ public class RdsService {
 
     private SchemaManager getSchemaManager(final RdsSourceConfig sourceConfig, final DbMetadata dbMetadata) {
         final ConnectionManager connectionManager = new ConnectionManager(
-                dbMetadata.getHostName(),
-                dbMetadata.getPort(),
+                "127.0.0.1",
+                3306,
                 sourceConfig.getAuthenticationConfig().getUsername(),
                 sourceConfig.getAuthenticationConfig().getPassword(),
                 sourceConfig.isTlsEnabled());
