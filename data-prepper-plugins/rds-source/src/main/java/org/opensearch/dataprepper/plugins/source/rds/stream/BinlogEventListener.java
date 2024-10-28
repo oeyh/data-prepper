@@ -276,6 +276,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
                                     foreignKeyRelation.getChildTableName(),
                                     foreignKeyRelation.getForeignKeyName(),
                                     updatedColumnsAndValues.get(column),
+                                    tableMetadata.getPrimaryKeys(),
                                     event.getHeader().getTimestamp());
                         }
                     }
@@ -315,6 +316,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
                                 foreignKeyRelation.getChildTableName(),
                                 foreignKeyRelation.getForeignKeyName(),
                                 "NULL",
+                                tableMetadata.getPrimaryKeys(),
                                 event.getHeader().getTimestamp());
                     }
                     // TODO: handle set_default as well
@@ -356,11 +358,12 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
         return parentTableMap;
     }
 
-    private void createResyncPartition(String database, String childTable, String foreignKeyName, Object updatedValue, long eventTimestampMillis) {
+    private void createResyncPartition(String database, String childTable, String foreignKeyName, Object updatedValue, List<String> primaryKeys, long eventTimestampMillis) {
         LOG.debug("Create Resyc partition for table {} and column {} with new value {}", childTable, foreignKeyName, updatedValue);
         final ResyncProgressState progressState = new ResyncProgressState();
         progressState.setForeignKeyName(foreignKeyName);
         progressState.setUpdatedValue(updatedValue);
+        progressState.setPrimaryKeys(primaryKeys);
 
         final ResyncPartition resyncPartition = new ResyncPartition(database, childTable, eventTimestampMillis, progressState);
         sourceCoordinator.createPartition(resyncPartition);

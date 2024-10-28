@@ -23,7 +23,9 @@ import org.opensearch.dataprepper.plugins.source.rds.leader.InstanceApiStrategy;
 import org.opensearch.dataprepper.plugins.source.rds.leader.LeaderScheduler;
 import org.opensearch.dataprepper.plugins.source.rds.leader.RdsApiStrategy;
 import org.opensearch.dataprepper.plugins.source.rds.model.DbMetadata;
+import org.opensearch.dataprepper.plugins.source.rds.resync.ResyncScheduler;
 import org.opensearch.dataprepper.plugins.source.rds.schema.ConnectionManager;
+import org.opensearch.dataprepper.plugins.source.rds.schema.QueryManager;
 import org.opensearch.dataprepper.plugins.source.rds.schema.SchemaManager;
 import org.opensearch.dataprepper.plugins.source.rds.stream.BinlogClientFactory;
 import org.opensearch.dataprepper.plugins.source.rds.stream.StreamScheduler;
@@ -61,6 +63,7 @@ public class RdsService {
     private ExportScheduler exportScheduler;
     private DataFileScheduler dataFileScheduler;
     private StreamScheduler streamScheduler;
+    private ResyncScheduler resyncScheduler;
 
     public RdsService(final EnhancedSourceCoordinator sourceCoordinator,
                       final RdsSourceConfig sourceConfig,
@@ -96,8 +99,16 @@ public class RdsService {
         final DbMetadata dbMetadata = rdsApiStrategy.describeDb(sourceConfig.getDbIdentifier());
         final String s3PathPrefix = getS3PathPrefix();
 
+        final ConnectionManager connectionManager = new ConnectionManager(
+//                dbMetadata.getHostName(),
+//                dbMetadata.getPort(),
+                "127.0.0.1",
+                3306,
+                sourceConfig.getAuthenticationConfig().getUsername(),
+                sourceConfig.getAuthenticationConfig().getPassword(),
+                sourceConfig.isTlsEnabled());
         leaderScheduler = new LeaderScheduler(
-                sourceCoordinator, sourceConfig, s3PathPrefix, getSchemaManager(sourceConfig, dbMetadata), dbMetadata);
+                sourceCoordinator, sourceConfig, s3PathPrefix, new SchemaManager(connectionManager), dbMetadata);
         runnableList.add(leaderScheduler);
 
         if (sourceConfig.isExportEnabled()) {
@@ -123,6 +134,9 @@ public class RdsService {
             streamScheduler = new StreamScheduler(
                     sourceCoordinator, sourceConfig, s3PathPrefix, binaryLogClientFactory, buffer, pluginMetrics, acknowledgementSetManager, pluginConfigObservable);
             runnableList.add(streamScheduler);
+
+            resyncScheduler = new ResyncScheduler(
+                    sourceCoordinator, sourceConfig, new QueryManager(connectionManager), s3PathPrefix, buffer, pluginMetrics, acknowledgementSetManager);
         }
 
         executor = Executors.newFixedThreadPool(runnableList.size());
@@ -148,16 +162,6 @@ public class RdsService {
             leaderScheduler.shutdown();
             executor.shutdownNow();
         }
-    }
-
-    private SchemaManager getSchemaManager(final RdsSourceConfig sourceConfig, final DbMetadata dbMetadata) {
-        final ConnectionManager connectionManager = new ConnectionManager(
-                "127.0.0.1",
-                3306,
-                sourceConfig.getAuthenticationConfig().getUsername(),
-                sourceConfig.getAuthenticationConfig().getPassword(),
-                sourceConfig.isTlsEnabled());
-        return new SchemaManager(connectionManager);
     }
 
     private String getS3PathPrefix() {

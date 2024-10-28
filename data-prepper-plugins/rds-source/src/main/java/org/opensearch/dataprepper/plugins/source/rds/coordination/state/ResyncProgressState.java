@@ -9,6 +9,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.List;
+
 @Setter
 @Getter
 public class ResyncProgressState {
@@ -17,4 +19,7 @@ public class ResyncProgressState {
 
     @JsonProperty("updatedValue")
     private Object updatedValue;
+
+    @JsonProperty("primaryKeys")
+    private List<String> primaryKeys;
 }
