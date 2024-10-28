@@ -34,6 +34,9 @@ public enum ForeignKeyAction {
     }
 
     public static boolean isCascadeAction(ForeignKeyAction foreignKeyAction) {
+        if (foreignKeyAction == null) {
+            return false;
+        }
         return Set.of(CASCADE, SET_DEFAULT, SET_NULL).contains(foreignKeyAction);
     }
 }

@@ -75,10 +75,15 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
      */
     private final Map<Long, TableMetadata> tableMetadataMap;
 
+    /**
+     * TableName to ParentTable mapping. Only parent tables that have cascading update/delete actions defined
+     * (CASCADE, SET_NULL, SET_DEFAULT) are included in this map.
+     */
+    private final Map<String, ParentTable> parentTableMap;
+    private final List<ForeignKeyRelation> foreignKeyRelations;
+
     private final EnhancedSourceCoordinator sourceCoordinator;
     private final StreamPartition streamPartition;
-    private final List<ForeignKeyRelation> foreignKeyRelations;
-    private final Map<String, ParentTable> parentTableMap;
     private final StreamRecordConverter recordConverter;
     private final BinaryLogClient binaryLogClient;
     private final Buffer<Record<Event>> buffer;
@@ -261,6 +266,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
 
                 LOG.debug("Decide whether to create resync partitions");
                 // Create resync partition if changing columns are associated with cascading update
+                // TODO: handle set null and set default as well
                 for (String column : updatedColumnsAndValues.keySet()) {
                     if (parentTable.getColumnsWithCascadingUpdate().containsKey(column)) {
                         for (ForeignKeyRelation foreignKeyRelation : parentTable.getColumnsWithCascadingUpdate().get(column)) {
@@ -291,6 +297,29 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
 
         if (!isValidTableId(data.getTableId())) {
             return;
+        }
+
+        final TableMetadata tableMetadata = tableMetadataMap.get(data.getTableId());
+
+        if (parentTableMap.containsKey(tableMetadata.getFullTableName())) {
+            final ParentTable parentTable = parentTableMap.get(tableMetadata.getFullTableName());
+
+            for (String column : parentTable.getColumnsWithCascadingDelete().keySet()) {
+                for (ForeignKeyRelation foreignKeyRelation : parentTable.getColumnsWithCascadingDelete().get(column)) {
+                    if (foreignKeyRelation.getDeleteAction() == ForeignKeyAction.CASCADE) {
+                        LOG.warn("Cascade delete is not supported yet");
+                    } else if (foreignKeyRelation.getDeleteAction() == ForeignKeyAction.SET_NULL) {
+                        // foreign key in the child table will be set to NULL
+                        createResyncPartition(
+                                foreignKeyRelation.getDatabaseName(),
+                                foreignKeyRelation.getChildTableName(),
+                                foreignKeyRelation.getForeignKeyName(),
+                                "NULL",
+                                event.getHeader().getTimestamp());
+                    }
+                    // TODO: handle set_default as well
+                }
+            }
         }
 
         handleRowChangeEvent(event, data.getTableId(), data.getRows(), OpenSearchBulkActions.DELETE);

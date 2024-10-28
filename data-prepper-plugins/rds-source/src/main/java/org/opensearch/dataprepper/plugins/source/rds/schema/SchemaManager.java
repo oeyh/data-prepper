@@ -78,6 +78,12 @@ public class SchemaManager {
         return Optional.empty();
     }
 
+    /**
+     * Get the foreign key relations associated with the given tables.
+     *
+     * @param tableNames the table names
+     * @return the foreign key relations
+     */
     public List<ForeignKeyRelation> getForeignKeyRelations(List<String> tableNames) {
         int retry = 0;
         while (retry <= NUM_OF_RETRIES) {

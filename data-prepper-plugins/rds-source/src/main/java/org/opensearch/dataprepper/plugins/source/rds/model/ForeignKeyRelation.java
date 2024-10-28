@@ -29,6 +29,9 @@ public class ForeignKeyRelation {
     @JsonProperty("foreign_key_name")
     private final String foreignKeyName;
 
+//    @JsonProperty("foreign_key_default_value")
+//    private final Object foreignKeyDefaultValue;
+
     @JsonProperty("update_action")
     private final ForeignKeyAction updateAction;
 
@@ -41,6 +44,7 @@ public class ForeignKeyRelation {
                               @JsonProperty("referenced_key_name") String referencedKeyName,
                               @JsonProperty("child_table_name") String childTableName,
                               @JsonProperty("foreign_key_name") String foreignKeyName,
+//                              @JsonProperty("foreign_key_default_value") Object foreignKeyDefaultValue,
                               @JsonProperty("update_action") ForeignKeyAction updateAction,
                               @JsonProperty("delete_action") ForeignKeyAction deleteAction) {
         this.databaseName = databaseName;
@@ -48,6 +52,7 @@ public class ForeignKeyRelation {
         this.referencedKeyName = referencedKeyName;
         this.childTableName = childTableName;
         this.foreignKeyName = foreignKeyName;
+//        this.foreignKeyDefaultValue = foreignKeyDefaultValue;
         this.updateAction = updateAction;
         this.deleteAction = deleteAction;
     }
