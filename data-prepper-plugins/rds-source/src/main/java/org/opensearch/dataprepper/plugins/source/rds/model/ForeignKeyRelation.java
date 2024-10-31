@@ -29,8 +29,9 @@ public class ForeignKeyRelation {
     @JsonProperty("foreign_key_name")
     private final String foreignKeyName;
 
-//    @JsonProperty("foreign_key_default_value")
-//    private final Object foreignKeyDefaultValue;
+    @JsonProperty("foreign_key_default_value")
+    @Builder.Default
+    private Object foreignKeyDefaultValue = null;
 
     @JsonProperty("update_action")
     private final ForeignKeyAction updateAction;
@@ -44,7 +45,7 @@ public class ForeignKeyRelation {
                               @JsonProperty("referenced_key_name") String referencedKeyName,
                               @JsonProperty("child_table_name") String childTableName,
                               @JsonProperty("foreign_key_name") String foreignKeyName,
-//                              @JsonProperty("foreign_key_default_value") Object foreignKeyDefaultValue,
+                              @JsonProperty("foreign_key_default_value") Object foreignKeyDefaultValue,
                               @JsonProperty("update_action") ForeignKeyAction updateAction,
                               @JsonProperty("delete_action") ForeignKeyAction deleteAction) {
         this.databaseName = databaseName;
@@ -52,13 +53,19 @@ public class ForeignKeyRelation {
         this.referencedKeyName = referencedKeyName;
         this.childTableName = childTableName;
         this.foreignKeyName = foreignKeyName;
-//        this.foreignKeyDefaultValue = foreignKeyDefaultValue;
+        this.foreignKeyDefaultValue = foreignKeyDefaultValue;
         this.updateAction = updateAction;
         this.deleteAction = deleteAction;
     }
 
-    public static boolean containsCascadeAction(ForeignKeyRelation foreignKeyRelation) {
-        return ForeignKeyAction.isCascadeAction(foreignKeyRelation.getUpdateAction()) ||
-                ForeignKeyAction.isCascadeAction(foreignKeyRelation.getDeleteAction());
+    /**
+     * Checks either update action or delete action is one of the cascading actions (CASCADE, SET_DEFAULT, SET_NULL).
+     *
+     * @param foreignKeyRelation The foreign key relation.
+     * @return True if the foreign key relation contains a cascade action, false otherwise.
+     */
+    public static boolean containsCascadingAction(ForeignKeyRelation foreignKeyRelation) {
+        return ForeignKeyAction.isCascadingAction(foreignKeyRelation.getUpdateAction()) ||
+                ForeignKeyAction.isCascadingAction(foreignKeyRelation.getDeleteAction());
     }
 }

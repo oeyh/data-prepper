@@ -137,6 +137,7 @@ public class RdsService {
 
             resyncScheduler = new ResyncScheduler(
                     sourceCoordinator, sourceConfig, new QueryManager(connectionManager), s3PathPrefix, buffer, pluginMetrics, acknowledgementSetManager);
+            runnableList.add(resyncScheduler);
         }
 
         executor = Executors.newFixedThreadPool(runnableList.size());

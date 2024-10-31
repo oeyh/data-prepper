@@ -79,7 +79,6 @@ public class ResyncScheduler implements Runnable {
 
                     resyncPartition = (ResyncPartition) sourcePartition.get();
 
-                    // TODO: process it asynchronously?
                     processResyncPartition(resyncPartition);
                 }
 
@@ -124,10 +123,17 @@ public class ResyncScheduler implements Runnable {
         final String foreignKeyName = progressState.getForeignKeyName();
         final Object updatedValue = progressState.getUpdatedValue();
 
-        final String queryStatement = String.format("SELECT * FROM %s WHERE %s='%s'",
-                database + "." + table, foreignKeyName, updatedValue);
+        LOG.debug("Will perform resync on table: {}.{}, with foreign key name: {}, and updated value: {}", database, table, foreignKeyName, updatedValue);
+        String queryStatement;
+        if (updatedValue == null) {
+            queryStatement = String.format("SELECT * FROM %s WHERE %s IS NULL", database + "." + table, foreignKeyName);
+        } else {
+            queryStatement = String.format("SELECT * FROM %s WHERE %s='%s'", database + "." + table, foreignKeyName, updatedValue);
+        }
+        LOG.debug("Query statement: {}", queryStatement);
 
         List<Map<String, Object>> rows = queryManager.selectRows(queryStatement);
+        LOG.debug("Found {} rows to resync", rows.size());
 
         for (Map<String, Object> row : rows) {
             final Event dataPrepperEvent = JacksonEvent.builder()

@@ -30,15 +30,12 @@ import org.opensearch.dataprepper.model.record.Record;
 import org.opensearch.dataprepper.model.source.coordinator.enhanced.EnhancedSourceCoordinator;
 import org.opensearch.dataprepper.plugins.source.rds.RdsSourceConfig;
 import org.opensearch.dataprepper.plugins.source.rds.converter.StreamRecordConverter;
-import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.ResyncPartition;
 import org.opensearch.dataprepper.plugins.source.rds.coordination.partition.StreamPartition;
-import org.opensearch.dataprepper.plugins.source.rds.coordination.state.ResyncProgressState;
-import org.opensearch.dataprepper.plugins.source.rds.coordination.state.StreamProgressState;
 import org.opensearch.dataprepper.plugins.source.rds.model.BinlogCoordinate;
-import org.opensearch.dataprepper.plugins.source.rds.model.ForeignKeyAction;
 import org.opensearch.dataprepper.plugins.source.rds.model.ForeignKeyRelation;
 import org.opensearch.dataprepper.plugins.source.rds.model.ParentTable;
 import org.opensearch.dataprepper.plugins.source.rds.model.TableMetadata;
+import org.opensearch.dataprepper.plugins.source.rds.resync.CascadingActionDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,12 +47,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 public class BinlogEventListener implements BinaryLogClient.EventListener {
 
@@ -80,9 +75,7 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
      * (CASCADE, SET_NULL, SET_DEFAULT) are included in this map.
      */
     private final Map<String, ParentTable> parentTableMap;
-    private final List<ForeignKeyRelation> foreignKeyRelations;
 
-    private final EnhancedSourceCoordinator sourceCoordinator;
     private final StreamPartition streamPartition;
     private final StreamRecordConverter recordConverter;
     private final BinaryLogClient binaryLogClient;
@@ -94,6 +87,8 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
     private final List<Event> pipelineEvents;
     private final StreamCheckpointManager streamCheckpointManager;
     private final ExecutorService binlogEventExecutorService;
+    private final CascadingActionDetector cascadeActionDetector;
+
     private final Counter changeEventSuccessCounter;
     private final Counter changeEventErrorCounter;
     private final DistributionSummary bytesReceivedSummary;
@@ -106,25 +101,25 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
      */
     private BinlogCoordinate currentBinlogCoordinate;
 
-    public BinlogEventListener(final EnhancedSourceCoordinator sourceCoordinator,
-                               final StreamPartition streamPartition,
+    public BinlogEventListener(final StreamPartition streamPartition,
                                final Buffer<Record<Event>> buffer,
                                final RdsSourceConfig sourceConfig,
                                final String s3Prefix,
                                final PluginMetrics pluginMetrics,
                                final BinaryLogClient binaryLogClient,
                                final StreamCheckpointer streamCheckpointer,
-                               final AcknowledgementSetManager acknowledgementSetManager) {
-        this.sourceCoordinator = sourceCoordinator;
+                               final AcknowledgementSetManager acknowledgementSetManager,
+                               final CascadingActionDetector cascadeActionDetector) {
         this.streamPartition = streamPartition;
 
         // Collect foreign key relations
+        List<ForeignKeyRelation> foreignKeyRelations;
         if (streamPartition.getProgressState().isPresent()) {
             foreignKeyRelations = streamPartition.getProgressState().get().getForeignKeyRelations();
         } else {
             foreignKeyRelations = Collections.emptyList();
         }
-        parentTableMap = getParentTableMap();
+        parentTableMap = getParentTableMap(foreignKeyRelations);
 
         this.buffer = buffer;
         this.binaryLogClient = binaryLogClient;
@@ -143,6 +138,8 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
                 acknowledgementSetManager, this::stopClient, sourceConfig.getStreamAcknowledgmentTimeout());
         streamCheckpointManager.start();
 
+        this.cascadeActionDetector = cascadeActionDetector;
+
         changeEventSuccessCounter = pluginMetrics.counter(CHANGE_EVENTS_PROCESSED_COUNT);
         changeEventErrorCounter = pluginMetrics.counter(CHANGE_EVENTS_PROCESSING_ERROR_COUNT);
         bytesReceivedSummary = pluginMetrics.summary(BYTES_RECEIVED);
@@ -158,8 +155,9 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
                                              final PluginMetrics pluginMetrics,
                                              final BinaryLogClient binaryLogClient,
                                              final StreamCheckpointer streamCheckpointer,
-                                             final AcknowledgementSetManager acknowledgementSetManager) {
-        return new BinlogEventListener(sourceCoordinator, streamPartition, buffer, sourceConfig, s3Prefix, pluginMetrics, binaryLogClient, streamCheckpointer, acknowledgementSetManager);
+                                             final AcknowledgementSetManager acknowledgementSetManager,
+                                             final CascadingActionDetector cascadeActionDetector) {
+        return new BinlogEventListener(streamPartition, buffer, sourceConfig, s3Prefix, pluginMetrics, binaryLogClient, streamCheckpointer, acknowledgementSetManager, cascadeActionDetector);
     }
 
     @Override
@@ -245,44 +243,8 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
             return;
         }
 
-        // Check if a Cascade action may be involved
-        // TODO: define all those in a separate Class?
-        final TableMetadata tableMetadata = tableMetadataMap.get(data.getTableId());
-
-        if (parentTableMap.containsKey(tableMetadata.getFullTableName())) {
-            final ParentTable parentTable = parentTableMap.get(tableMetadata.getFullTableName());
-
-            for (Map.Entry<Serializable[], Serializable[]> row : data.getRows()) {
-                // Find out for this row, which columns are changing
-                LOG.debug("Checking for updated columns");
-                final Map<String, Object> updatedColumnsAndValues = IntStream.range(0, row.getKey().length)
-                        .filter(i -> row.getKey()[i] != row.getValue()[i])
-                        .mapToObj(i -> tableMetadata.getColumnNames().get(i))
-                        .collect(Collectors.toMap(
-                                column -> column,
-                                column -> row.getValue()[tableMetadata.getColumnNames().indexOf(column)]
-                        ));
-                LOG.debug("These columns were updated: {}", updatedColumnsAndValues);
-
-                LOG.debug("Decide whether to create resync partitions");
-                // Create resync partition if changing columns are associated with cascading update
-                // TODO: handle set null and set default as well
-                for (String column : updatedColumnsAndValues.keySet()) {
-                    if (parentTable.getColumnsWithCascadingUpdate().containsKey(column)) {
-                        for (ForeignKeyRelation foreignKeyRelation : parentTable.getColumnsWithCascadingUpdate().get(column)) {
-                            // Create Resync Partition
-                            createResyncPartition(
-                                    foreignKeyRelation.getDatabaseName(),
-                                    foreignKeyRelation.getChildTableName(),
-                                    foreignKeyRelation.getForeignKeyName(),
-                                    updatedColumnsAndValues.get(column),
-                                    tableMetadata.getPrimaryKeys(),
-                                    event.getHeader().getTimestamp());
-                        }
-                    }
-                }
-            }
-        }
+        // Check if a cascade action is involved
+        cascadeActionDetector.detectCascadingUpdates(event, parentTableMap, tableMetadataMap.get(data.getTableId()));
 
         // updatedRow contains data before update as key and data after update as value
         final List<Serializable[]> rows = data.getRows().stream()
@@ -300,38 +262,17 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
             return;
         }
 
-        final TableMetadata tableMetadata = tableMetadataMap.get(data.getTableId());
-
-        if (parentTableMap.containsKey(tableMetadata.getFullTableName())) {
-            final ParentTable parentTable = parentTableMap.get(tableMetadata.getFullTableName());
-
-            for (String column : parentTable.getColumnsWithCascadingDelete().keySet()) {
-                for (ForeignKeyRelation foreignKeyRelation : parentTable.getColumnsWithCascadingDelete().get(column)) {
-                    if (foreignKeyRelation.getDeleteAction() == ForeignKeyAction.CASCADE) {
-                        LOG.warn("Cascade delete is not supported yet");
-                    } else if (foreignKeyRelation.getDeleteAction() == ForeignKeyAction.SET_NULL) {
-                        // foreign key in the child table will be set to NULL
-                        createResyncPartition(
-                                foreignKeyRelation.getDatabaseName(),
-                                foreignKeyRelation.getChildTableName(),
-                                foreignKeyRelation.getForeignKeyName(),
-                                "NULL",
-                                tableMetadata.getPrimaryKeys(),
-                                event.getHeader().getTimestamp());
-                    }
-                    // TODO: handle set_default as well
-                }
-            }
-        }
+        // Check if a cascade action is involved
+        cascadeActionDetector.detectCascadingDeletes(event, parentTableMap, tableMetadataMap.get(data.getTableId()));
 
         handleRowChangeEvent(event, data.getTableId(), data.getRows(), OpenSearchBulkActions.DELETE);
     }
 
-    private Map<String, ParentTable> getParentTableMap() {
+    private Map<String, ParentTable> getParentTableMap(List<ForeignKeyRelation> foreignKeyRelations) {
         final Map<String, ParentTable> parentTableMap;
         parentTableMap = new HashMap<>();
         for (ForeignKeyRelation foreignKeyRelation : foreignKeyRelations) {
-            if (!ForeignKeyRelation.containsCascadeAction(foreignKeyRelation)) {
+            if (!ForeignKeyRelation.containsCascadingAction(foreignKeyRelation)) {
                 continue;
             }
             final String fullParentTableName = getFullTableName(foreignKeyRelation.getDatabaseName(), foreignKeyRelation.getParentTableName());
@@ -356,17 +297,6 @@ public class BinlogEventListener implements BinaryLogClient.EventListener {
         }
         LOG.debug("ParentTables are {}", parentTableMap.keySet());
         return parentTableMap;
-    }
-
-    private void createResyncPartition(String database, String childTable, String foreignKeyName, Object updatedValue, List<String> primaryKeys, long eventTimestampMillis) {
-        LOG.debug("Create Resyc partition for table {} and column {} with new value {}", childTable, foreignKeyName, updatedValue);
-        final ResyncProgressState progressState = new ResyncProgressState();
-        progressState.setForeignKeyName(foreignKeyName);
-        progressState.setUpdatedValue(updatedValue);
-        progressState.setPrimaryKeys(primaryKeys);
-
-        final ResyncPartition resyncPartition = new ResyncPartition(database, childTable, eventTimestampMillis, progressState);
-        sourceCoordinator.createPartition(resyncPartition);
     }
 
     private String getFullTableName(String database, String table) {

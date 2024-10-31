@@ -103,8 +103,18 @@ public class SchemaManager {
                             String fkColumnName = foreignKeys.getString(FKCOLUMN_NAME);
                             String pkTableName = foreignKeys.getString(PKTABLE_NAME);
                             String pkColumnName = foreignKeys.getString(PKCOLUMN_NAME);
-                            short updateRule = foreignKeys.getShort(UPDATE_RULE);
-                            short deleteRule = foreignKeys.getShort(DELETE_RULE);
+                            ForeignKeyAction updateAction = ForeignKeyAction.getActionFromMetadata(foreignKeys.getShort(UPDATE_RULE));
+                            ForeignKeyAction deleteAction = ForeignKeyAction.getActionFromMetadata(foreignKeys.getShort(DELETE_RULE));
+
+                            Object defaultValue = null;
+                            if (updateAction == ForeignKeyAction.SET_DEFAULT || deleteAction == ForeignKeyAction.SET_DEFAULT) {
+                                // Get column default
+                                ResultSet columnResult = metaData.getColumns(database, null, table, fkColumnName);
+
+                                if (columnResult.next()) {
+                                    defaultValue = columnResult.getObject("COLUMN_DEF");
+                                }
+                            }
 
                             ForeignKeyRelation foreignKeyRelation = ForeignKeyRelation.builder()
                                     .databaseName(database)
@@ -112,8 +122,9 @@ public class SchemaManager {
                                     .referencedKeyName(pkColumnName)
                                     .childTableName(fkTableName)
                                     .foreignKeyName(fkColumnName)
-                                    .updateAction(ForeignKeyAction.getActionFromMetadata(updateRule))
-                                    .deleteAction(ForeignKeyAction.getActionFromMetadata(deleteRule))
+                                    .foreignKeyDefaultValue(defaultValue)
+                                    .updateAction(updateAction)
+                                    .deleteAction(deleteAction)
                                     .build();
 
                             foreignKeyRelations.add(foreignKeyRelation);

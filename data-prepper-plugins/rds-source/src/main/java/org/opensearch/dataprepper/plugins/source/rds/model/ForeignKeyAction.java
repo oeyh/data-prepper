@@ -33,7 +33,14 @@ public enum ForeignKeyAction {
         }
     }
 
-    public static boolean isCascadeAction(ForeignKeyAction foreignKeyAction) {
+    /**
+     * Checks if the foreign key action is one of the cascading actions (CASCADE, SET_DEFAULT, SET_NULL)
+     * that will result in changes to the foreign key value when referenced key in parent table changes.
+     *
+     * @param foreignKeyAction the foreign key action
+     * @return true if the foreign key action is a cascade action, false otherwise
+     */
+    public static boolean isCascadingAction(ForeignKeyAction foreignKeyAction) {
         if (foreignKeyAction == null) {
             return false;
         }

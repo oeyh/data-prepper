@@ -35,6 +35,9 @@ public class ParentTable {
     @Builder.Default
     private Map<String, List<ForeignKeyRelation>> columnsWithCascadingDelete = null;
 
+    /**
+     * Returns a map of column name to a list of ForeignKeyRelation in which the column is referenced and the update action is cascading.
+     */
     public Map<String, List<ForeignKeyRelation>> getColumnsWithCascadingUpdate() {
         if (columnsWithCascadingUpdate != null) {
             return columnsWithCascadingUpdate;
@@ -43,7 +46,7 @@ public class ParentTable {
         final Map<String, List<ForeignKeyRelation>> columnsWithCascadingUpdate = new HashMap<>();
         for (String column : referencedColumnMap.keySet()) {
             for (ForeignKeyRelation foreignKeyRelation : referencedColumnMap.get(column)) {
-                if (ForeignKeyAction.isCascadeAction(foreignKeyRelation.getUpdateAction())) {
+                if (ForeignKeyAction.isCascadingAction(foreignKeyRelation.getUpdateAction())) {
                     if (!columnsWithCascadingUpdate.containsKey(column)) {
                         columnsWithCascadingUpdate.put(column, new ArrayList<>());
                     }
@@ -54,6 +57,9 @@ public class ParentTable {
         return columnsWithCascadingUpdate;
     }
 
+    /**
+     * Returns a map of column name to a list of ForeignKeyRelation in which the column is referenced and the delete action is cascading.
+     */
     public Map<String, List<ForeignKeyRelation>> getColumnsWithCascadingDelete() {
         if (columnsWithCascadingDelete != null) {
             return columnsWithCascadingDelete;
@@ -62,7 +68,7 @@ public class ParentTable {
         final Map<String, List<ForeignKeyRelation>> columnsWithCascadingDelete = new HashMap<>();
         for (String column : referencedColumnMap.keySet()) {
             for (ForeignKeyRelation foreignKeyRelation : referencedColumnMap.get(column)) {
-                if (ForeignKeyAction.isCascadeAction(foreignKeyRelation.getDeleteAction())) {
+                if (ForeignKeyAction.isCascadingAction(foreignKeyRelation.getDeleteAction())) {
                     if (!columnsWithCascadingDelete.containsKey(column)) {
                         columnsWithCascadingDelete.put(column, new ArrayList<>());
                     }
