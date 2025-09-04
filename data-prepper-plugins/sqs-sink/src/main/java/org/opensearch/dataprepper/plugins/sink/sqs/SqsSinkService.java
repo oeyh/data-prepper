@@ -257,22 +257,27 @@ public class SqsSinkService extends SqsSinkExecutor {
         String gId = getGroupId(event);
         String ddId = getDeDupId(event);
         boolean isFull = batch.addEntry(event, gId, ddId, estimatedSize);
-        if (isFull) {
+        if (isFull || thresholdConfig.isImmediateFlush()) {
             batch.setFlushReady();
         }
-        return isFull;
+        return isFull || thresholdConfig.isImmediateFlush();
     }
 
 
     @Override
     public boolean exceedsFlushTimeInterval() {
-        long now = Instant.now().getEpochSecond();
+        // For immediate flush, time interval check is not applicable
+        if (thresholdConfig.isImmediateFlush()) {
+            return false;
+        }
+        
+        long now = Instant.now().toEpochMilli();
         boolean result = false;
 
         for (Map.Entry<String, SqsSinkBatch> qUrlEntry: batchUrlMap.entrySet()) {
             String qUrl = qUrlEntry.getKey();
             SqsSinkBatch batch = qUrlEntry.getValue();
-            if (now - batch.getLastFlushedTime() > thresholdConfig.getFlushInterval()) {
+            if (now - batch.getLastFlushedTime() > thresholdConfig.getFlushTimeout()) {
                 batch.setFlushReady();
                 result = true;
             }

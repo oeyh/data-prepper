@@ -29,7 +29,6 @@ import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import org.opensearch.dataprepper.plugins.dlq.DlqProvider;
 import org.opensearch.dataprepper.plugins.dlq.s3.S3DlqProvider;
 import org.opensearch.dataprepper.plugins.dlq.s3.S3DlqWriterConfig;
@@ -416,7 +415,7 @@ public class SqsSinkIT {
     @ValueSource(ints = {10, 25, 40, 75})
     void TestSinkOperationWithFlushIntervalOneRequest(int numRecords) throws Exception {
         when(thresholdConfig.getMaxEventsPerMessage()).thenReturn(50);
-        when(thresholdConfig.getFlushInterval()).thenReturn(3L);
+        when(thresholdConfig.getFlushTimeout()).thenReturn(3L);
 
         sink = createObjectUnderTest();
         Collection<Record<Event>> records = getRecordList(numRecords, false);
@@ -458,7 +457,7 @@ public class SqsSinkIT {
     @ValueSource(ints = {10, 25, 40, 75})
     void TestSinkOperationWithFlushIntervalMultipleRequests(int numRecords) throws Exception {
         when(thresholdConfig.getMaxEventsPerMessage()).thenReturn(5);
-        when(thresholdConfig.getFlushInterval()).thenReturn(5L);
+        when(thresholdConfig.getFlushTimeout()).thenReturn(5L);
 
         sink = createObjectUnderTest();
         Collection<Record<Event>> records = getRecordList(numRecords, false);
@@ -625,7 +624,7 @@ public class SqsSinkIT {
         PluginModel dlqConfig = mock(PluginModel.class);
         when(dlqConfig.getPluginSettings()).thenReturn(new HashMap<String, Object>());
         when(dlqConfig.getPluginName()).thenReturn("s3");
-        when(thresholdConfig.getFlushInterval()).thenReturn(3L);
+        when(thresholdConfig.getFlushTimeout()).thenReturn(3L);
 
         S3DlqWriterConfig s3DlqWriterConfig = mock(S3DlqWriterConfig.class);
         when(s3DlqWriterConfig.getBucket()).thenReturn(bucket);

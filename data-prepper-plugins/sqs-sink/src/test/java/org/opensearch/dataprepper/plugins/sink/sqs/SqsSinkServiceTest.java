@@ -222,7 +222,7 @@ public class SqsSinkServiceTest {
     void TestWithInvalidQueueUrlMissingFieldInEvent() {
         int numRecords = 10;
         when (sqsSinkConfig.getQueueUrl()).thenReturn(queueUrl+"${/abcd}");
-        when (thresholdConfig.getFlushInterval()).thenReturn(2L);
+        when (thresholdConfig.getFlushTimeout()).thenReturn(2000L);
         SqsSinkService sqsSinkService = createObjectUnderTest();
         List<Record<Event>> records = getRecordList(numRecords);
         sqsSinkService.execute(records);
@@ -237,7 +237,7 @@ public class SqsSinkServiceTest {
     @ParameterizedTest
     @ValueSource(ints = {9, 29, 49, 69})
     void TestExecuteWithOneBatch_FlushTimeout(int numRecords) throws Exception {
-        when (thresholdConfig.getFlushInterval()).thenReturn(2L);
+        when (thresholdConfig.getFlushTimeout()).thenReturn(2000L);
         SqsSinkService sqsSinkService = createObjectUnderTest();
         List<Record<Event>> records = getRecordList(numRecords);
         sqsSinkService.execute(records);
@@ -277,7 +277,7 @@ public class SqsSinkServiceTest {
         }).when(mWriter).complete();
         when(mOutputCodec.createWriter(any(), eq(null), any(OutputCodecContext.class))).thenReturn(mWriter);
         outputCodec = mOutputCodec;
-        when (thresholdConfig.getFlushInterval()).thenReturn(2L);
+        when (thresholdConfig.getFlushTimeout()).thenReturn(2000L);
         when (sqsSinkConfig.getQueueUrl()).thenReturn(queueUrl+"${/id}");
         SqsSinkService sqsSinkService = createObjectUnderTest();
         List<Record<Event>> records = getRecordList(numRecords);
@@ -551,6 +551,48 @@ public class SqsSinkServiceTest {
             recordList.add(new Record<>(event));
         }
         return recordList;
+    }
+
+    @Test
+    void test_ImmediateFlush_WhenFlushIntervalIsMinusOne() throws Exception {
+        // Configure immediate flush
+        when(thresholdConfig.isImmediateFlush()).thenReturn(true);
+        when(thresholdConfig.getFlushTimeout()).thenReturn(-1L);
+        
+        SqsSinkService sqsSinkService = createObjectUnderTest();
+        
+        // Create a single event
+        List<Record<Event>> records = getRecordList(1);
+        Event event = records.get(0).getData();
+        long eventSize = outputCodec.getEstimatedSize(event, new OutputCodecContext());
+        
+        // Add event to buffer - should return true for immediate flush
+        boolean shouldFlush = sqsSinkService.addToBuffer(event, eventSize);
+        
+        assertTrue(shouldFlush, "addToBuffer should return true when immediate flush is enabled");
+        
+        // Verify that exceedsFlushTimeInterval returns false for immediate flush mode
+        assertFalse(sqsSinkService.exceedsFlushTimeInterval(), 
+                    "exceedsFlushTimeInterval should return false when immediate flush is enabled");
+    }
+
+    @Test  
+    void test_NormalFlush_WhenFlushIntervalIsNormal() throws Exception {
+        // Configure normal flush interval
+        when(thresholdConfig.isImmediateFlush()).thenReturn(false);
+        when(thresholdConfig.getFlushTimeout()).thenReturn(60000L);
+        
+        SqsSinkService sqsSinkService = createObjectUnderTest();
+        
+        // Create a single event  
+        List<Record<Event>> records = getRecordList(1);
+        Event event = records.get(0).getData();
+        long eventSize = outputCodec.getEstimatedSize(event, new OutputCodecContext());
+        
+        // Add event to buffer - should return false since batch isn't full
+        boolean shouldFlush = sqsSinkService.addToBuffer(event, eventSize);
+        
+        assertFalse(shouldFlush, "addToBuffer should return false when batch is not full and immediate flush is disabled");
     }
 
     private static List<HashMap> generateRecords(int numberOfRecords) {

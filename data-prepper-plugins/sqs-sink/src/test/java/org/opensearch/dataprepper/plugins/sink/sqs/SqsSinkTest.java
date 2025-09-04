@@ -78,6 +78,8 @@ public class SqsSinkTest {
     private AwsCredentialsProvider awsCredentialsProvider;
     @Mock
     private AwsConfig awsConfig;
+    @Mock
+    private SqsThresholdConfig sqsThresholdConfig;
 
     private SqsClient sqsClient;
     private PluginModel codecConfig;
@@ -100,6 +102,16 @@ public class SqsSinkTest {
         when(awsCredentialsSupplier.getProvider(any())).thenReturn(awsCredentialsProvider);
         when(awsCredentialsSupplier.getDefaultRegion()).thenReturn(Optional.of(Region.of("us-west-2")));
         when(sqsSinkConfig.getDlq()).thenReturn(null);
+        
+        // Setup threshold config mock
+        sqsThresholdConfig = mock(SqsThresholdConfig.class);
+        when(sqsThresholdConfig.getMaxMessageSizeBytes()).thenReturn(256*1024L);
+        when(sqsThresholdConfig.getMaxEventsPerMessage()).thenReturn(25);
+        when(sqsThresholdConfig.getFlushTimeout()).thenReturn(30000L);
+        when(sqsThresholdConfig.isImmediateFlush()).thenReturn(false);
+        when(sqsSinkConfig.getThresholdConfig()).thenReturn(sqsThresholdConfig);
+        when(sqsSinkConfig.getMaxRetries()).thenReturn(3);
+        
         codecConfig = mock(PluginModel.class);
         when(codecConfig.getPluginName()).thenReturn(TEST_CODEC_PLUGIN_NAME);
         when(codecConfig.getPluginSettings()).thenReturn(Map.of());

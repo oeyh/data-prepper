@@ -19,6 +19,7 @@ import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.opensearch.dataprepper.test.helper.ReflectivelySetField.setField;
 
 public class SqsSinkConfigTest {
     private SqsSinkConfig sqsSinkConfig;
@@ -41,11 +42,11 @@ public class SqsSinkConfigTest {
         assertThat(sqsSinkConfig.getAwsConfig(), equalTo(null));
         assertThat(sqsSinkConfig.getThresholdConfig().getMaxEventsPerMessage(), equalTo(SqsThresholdConfig.DEFAULT_MESSAGES_PER_EVENT));
         assertThat(sqsSinkConfig.getThresholdConfig().getMaxMessageSizeBytes(), equalTo(SqsThresholdConfig.DEFAULT_MAX_MESSAGE_SIZE.getBytes()));
-        assertThat(sqsSinkConfig.getThresholdConfig().getFlushInterval(), equalTo(SqsThresholdConfig.DEFAULT_FLUSH_INTERVAL_TIME));
+        assertThat(sqsSinkConfig.getThresholdConfig().getFlushTimeout(), equalTo(SqsThresholdConfig.DEFAULT_FLUSH_INTERVAL_TIME));
     }
 
     @Test
-    private void TestCustomConfig() throws Exception {
+    void TestCustomConfig() throws Exception {
         AwsConfig awsConfig = mock(AwsConfig.class);
         reflectivelySetField(sqsSinkConfig, "awsConfig", awsConfig);
         assertThat(sqsSinkConfig.getAwsConfig(), equalTo(awsConfig));
@@ -127,6 +128,23 @@ public class SqsSinkConfigTest {
         reflectivelySetField(sqsSinkConfig, "codec", codec);
         when(sqsThresholdConfig.getMaxEventsPerMessage()).thenReturn(2);
         assertFalse(sqsSinkConfig.isValidCodecConfig());
+    }
+
+    @Test
+    void test_ThresholdConfig_DefaultFlushInterval_NotImmediateFlush() {
+        SqsThresholdConfig defaultThresholdConfig = sqsSinkConfig.getThresholdConfig();
+        assertFalse(defaultThresholdConfig.isImmediateFlush());
+        assertThat(defaultThresholdConfig.getFlushTimeout(), equalTo(SqsThresholdConfig.DEFAULT_FLUSH_INTERVAL_TIME));
+    }
+
+    @Test
+    void test_ThresholdConfig_ImmediateFlush_WhenFlushTimeoutIsMinusOne() throws Exception {
+        SqsThresholdConfig thresholdConfig = new SqsThresholdConfig();
+        
+        setField(SqsThresholdConfig.class, thresholdConfig, "flushTimeout", -1L);
+        
+        assertTrue(thresholdConfig.isImmediateFlush());
+        assertThat(thresholdConfig.getFlushTimeout(), equalTo(-1L));
     }
 
     private void reflectivelySetField(final SqsSinkConfig sqsSinkConfig, final String fieldName, final Object value) throws NoSuchFieldException, IllegalAccessException {
